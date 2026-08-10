@@ -88,7 +88,11 @@ class TrackFeatures(BaseModel):
 
 class CoachFeedbackResponse(BaseModel):
     track_id: str
+    # Deterministic — always populated, computed with librosa alone, no LLM involved.
     features: TrackFeatures
+    # AI-enhanced — only populated if Ollama is reachable locally, mirroring the MIDI Analyzer's
+    # `ai_available` split.
+    ai_available: bool
     strengths: list[str]
     improvements: list[str]
     follow_up_questions: list[str]

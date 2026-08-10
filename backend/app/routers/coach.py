@@ -11,11 +11,13 @@ from app.models.schemas import (
     CoachFeedbackResponse,
     CoachUploadResponse,
 )
-from app.services import audio_analysis
+from app.services import audio_analysis, ollama_client
+from app.services.audio_analysis import AudioLoadError
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
 
 _ALLOWED_EXTENSIONS = (".wav", ".mp3", ".m4a", ".flac", ".aiff")
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB, per docs/FEATURE_COACH.md
 
 
 @router.post("/upload", response_model=CoachUploadResponse)
@@ -28,16 +30,25 @@ async def upload(file: UploadFile):
 
     track_id = str(uuid.uuid4())
     dest = settings.upload_dir / f"{track_id}_{file.filename}"
+    size = 0
     with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > _MAX_UPLOAD_BYTES:
+                f.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="File exceeds the 50MB upload limit.")
+            f.write(chunk)
 
     try:
         features = await audio_analysis.extract_features(dest)
-        duration_sec = features.get("duration_sec", 0.0)
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except AudioLoadError as exc:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return CoachUploadResponse(track_id=track_id, filename=file.filename, duration_sec=duration_sec)
+    return CoachUploadResponse(
+        track_id=track_id, filename=file.filename, duration_sec=features["duration_sec"]
+    )
 
 
 @router.post("/feedback", response_model=CoachFeedbackResponse)
@@ -48,8 +59,8 @@ async def feedback(body: CoachFeedbackRequest):
 
     try:
         return await audio_analysis.generate_feedback(body.track_id, matches[0])
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except AudioLoadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/chat", response_model=CoachChatResponse)
@@ -57,5 +68,9 @@ async def chat(body: CoachChatRequest):
     try:
         reply = await audio_analysis.continue_chat(body.track_id, body.messages)
         return CoachChatResponse(reply=reply)
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail="No analysis found for this track_id — get feedback first."
+        ) from exc
+    except ollama_client.OllamaError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc

@@ -115,16 +115,6 @@ def _avg_velocity(instruments: list) -> int:
     return round(sum(velocities) / len(velocities)) if velocities else 0
 
 
-def _strip_code_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
-    return text
-
-
 async def _interpret_features(feature_summary: str) -> tuple[bool, str, str, list[str]]:
     """Ask Ollama for a feel/mood read on top of the deterministic features.
 
@@ -138,7 +128,7 @@ async def _interpret_features(feature_summary: str) -> tuple[bool, str, str, lis
         return False, "", "", []
 
     try:
-        data = json.loads(_strip_code_fences(raw))
+        data = ollama_client.parse_json_response(raw)
         return (
             True,
             str(data.get("feel_summary", "")).strip(),

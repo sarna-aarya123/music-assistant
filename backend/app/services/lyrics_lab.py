@@ -53,16 +53,6 @@ class LyricsLLMError(RuntimeError):
     """Raised when Ollama is reachable but returns output we can't parse into the expected shape."""
 
 
-def _strip_code_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
-    return text
-
-
 def _format_lyrics_block(lyrics: str, style_reference: str | None) -> str:
     block = f"Lyrics:\n{lyrics}"
     if style_reference:
@@ -75,7 +65,7 @@ async def analyze_lyrics(lyrics: str, style_reference: str | None) -> LyricsAnal
     raw = await ollama_client.generate(prompt, system=_ANALYZE_SYSTEM_PROMPT)
 
     try:
-        data = json.loads(_strip_code_fences(raw))
+        data = ollama_client.parse_json_response(raw)
         return LyricsAnalyzeResponse(
             overall_notes=str(data.get("overall_notes", "")).strip(),
             rhyme_notes=str(data.get("rhyme_notes", "")).strip(),
@@ -100,7 +90,7 @@ async def generate_lines(
     raw = await ollama_client.generate(prompt, system=_GENERATE_SYSTEM_PROMPT)
 
     try:
-        data = json.loads(_strip_code_fences(raw))
+        data = ollama_client.parse_json_response(raw)
         return [str(line).strip() for line in data.get("candidates", [])][:count]
     except (json.JSONDecodeError, AttributeError) as exc:
         raise LyricsLLMError(f"Ollama returned unparseable output for lyric generation: {exc}") from exc

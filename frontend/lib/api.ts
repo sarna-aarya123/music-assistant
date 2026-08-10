@@ -97,6 +97,7 @@ export type CoachUploadResponse = {
 export type CoachFeedbackResponse = {
   track_id: string;
   features: { bpm: number; key: string; rms_db: number; brightness_hz: number };
+  ai_available: boolean;
   strengths: string[];
   improvements: string[];
   follow_up_questions: string[];

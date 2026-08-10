@@ -20,9 +20,9 @@ export default function CoachPage() {
   const [loading, setLoading] = useState<"upload" | "feedback" | "chat" | null>(null);
 
   function friendlyError(err: unknown) {
-    return err instanceof ApiError
-      ? `${err.message}${err.status === 501 ? " (Phase 3 — not built yet, see PLAN.md)" : ""}`
-      : "Something went wrong.";
+    if (!(err instanceof ApiError)) return "Something went wrong.";
+    if (err.status === 503) return `${err.message} (Ollama isn't reachable — run \`ollama serve\`.)`;
+    return err.message;
   }
 
   async function handleUploadAndAnalyze() {
@@ -91,26 +91,57 @@ export default function CoachPage() {
 
       {feedback && (
         <div className="mt-6 space-y-4">
-          <div className="rounded-lg border border-border bg-surface p-4">
-            <h3 className="mb-1 font-medium">Strengths</h3>
-            <ul className="list-inside list-disc text-sm text-muted">
-              {feedback.strengths.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="BPM" value={feedback.features.bpm} />
+            <Stat label="Key" value={feedback.features.key} />
+            <Stat label="Loudness" value={`${feedback.features.rms_db} dB`} />
+            <Stat label="Brightness" value={`${Math.round(feedback.features.brightness_hz)} Hz`} />
           </div>
-          <div className="rounded-lg border border-border bg-surface p-4">
-            <h3 className="mb-1 font-medium">Improvements</h3>
-            <ul className="list-inside list-disc text-sm text-muted">
-              {feedback.improvements.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          </div>
+          {feedback.ai_available ? (
+            <>
+              <div className="rounded-lg border border-border bg-surface p-4">
+                <h3 className="mb-1 font-medium">Strengths</h3>
+                <ul className="list-inside list-disc text-sm text-muted">
+                  {feedback.strengths.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-lg border border-border bg-surface p-4">
+                <h3 className="mb-1 font-medium">Improvements</h3>
+                <ul className="list-inside list-disc text-sm text-muted">
+                  {feedback.improvements.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+              {feedback.follow_up_questions.length > 0 && (
+                <div className="rounded-lg border border-border bg-surface p-4">
+                  <h3 className="mb-1 font-medium">The coach might ask</h3>
+                  <ul className="list-inside list-disc text-sm text-muted">
+                    {feedback.follow_up_questions.map((q, i) => (
+                      <li key={i}>{q}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted">
+              The stats above are computed locally — no AI needed. Want strengths/improvements
+              feedback and chat too? Install{" "}
+              <a href="https://ollama.com" target="_blank" rel="noreferrer" className="text-accent underline">
+                Ollama
+              </a>
+              , run <code className="rounded bg-background px-1">ollama serve</code>, pull a model
+              (e.g. <code className="rounded bg-background px-1">ollama pull llama3:8b</code>), and
+              re-run the analysis.
+            </div>
+          )}
         </div>
       )}
 
-      {trackId && feedback && (
+      {trackId && feedback && feedback.ai_available && (
         <div className="mt-6 rounded-lg border border-border bg-surface p-4">
           <h3 className="mb-3 font-medium">Ask a follow-up</h3>
           <div className="mb-3 space-y-2">
@@ -138,6 +169,15 @@ export default function CoachPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface p-3">
+      <div className="text-xs uppercase text-muted">{label}</div>
+      <div className="text-lg font-semibold">{value}</div>
     </div>
   );
 }
