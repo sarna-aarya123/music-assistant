@@ -14,9 +14,9 @@ export default function LyricsPage() {
   const [loading, setLoading] = useState<"analyze" | "generate" | null>(null);
 
   function friendlyError(err: unknown) {
-    return err instanceof ApiError
-      ? `${err.message}${err.status === 501 ? " (Phase 2 — not built yet, see PLAN.md)" : ""}`
-      : "Something went wrong.";
+    if (!(err instanceof ApiError)) return "Something went wrong.";
+    if (err.status === 503) return `${err.message} (Ollama isn't reachable — run \`ollama serve\`.)`;
+    return err.message;
   }
 
   async function handleAnalyze() {
@@ -106,6 +106,19 @@ export default function LyricsPage() {
           <Section title="Rhyme" text={analysis.rhyme_notes} />
           <Section title="Repetition" text={analysis.repetition_notes} />
           <Section title="Cadence" text={analysis.cadence_notes} />
+          {analysis.line_by_line.length > 0 && (
+            <div className="rounded-lg border border-border bg-surface p-4">
+              <h3 className="mb-2 font-medium">Line by line</h3>
+              <ul className="space-y-2 text-sm">
+                {analysis.line_by_line.map((item, i) => (
+                  <li key={i}>
+                    <p>{item.line}</p>
+                    <p className="text-muted">{item.note}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
