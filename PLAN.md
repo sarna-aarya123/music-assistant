@@ -50,33 +50,41 @@ Simplest feature: no audio DSP, no conversation state, single request/response.
       synthetic test MIDI file and the local Ollama instance
 - See [docs/FEATURE_MIDI_ANALYZER.md](docs/FEATURE_MIDI_ANALYZER.md)
 
-### Phase 2 — Lyric Lab
+### Phase 2 — Lyric Lab ✅ complete
 Pure text in/out — easiest LLM integration, good place to nail the prompt style/persona before
 tackling audio.
 
-- Implement prompt templates for:
-  - **Analyze**: critique flow, rhyme density/scheme, repetition, cadence, imagery — in the voice
-    of a peer producer/writer, referencing the rage/plugg aesthetic where relevant
+- [x] Implemented `backend/app/services/lyrics_lab.py`:
+  - **Analyze**: critique flow, rhyme scheme, repetition, cadence, imagery — in the voice of a
+    peer producer/writer, referencing the rage/plugg aesthetic where relevant
   - **Generate**: given existing lyrics + a theme/prompt, generate N candidate lines that match
-    the established flow/rhyme scheme/ad-lib style
-- Wire up `backend/app/routers/lyrics.py` (`/analyze`, `/generate`)
-- Wire up `frontend/app/lyrics/page.tsx`
+    the established flow/rhyme scheme
+  - No non-AI fallback here — critique/generation are inherently LLM tasks, unlike MIDI/Coach
+- [x] Wire up `backend/app/routers/lyrics.py` (`/analyze`, `/generate`) — maps `OllamaError`→503,
+      unparseable-output→502
+- [x] Wire up `frontend/app/lyrics/page.tsx`, including the line-by-line breakdown
+- [x] Verified end to end against live Ollama (`llama3:8b`) and a simulated Ollama-down case
 - See [docs/FEATURE_LYRICS.md](docs/FEATURE_LYRICS.md)
 
-### Phase 3 — AI Coach
+### Phase 3 — AI Coach ✅ complete
 Most complex: file upload, audio feature extraction, structured feedback, then multi-turn chat
 grounded in that track's analysis.
 
-- Implement `backend/app/services/audio_analysis.py`:
+- [x] Implemented `backend/app/services/audio_analysis.py`:
   - Load audio with `librosa`/`soundfile`
-  - Extract: tempo/BPM, key estimate, loudness/RMS, spectral centroid (brightness), estimated
-    section structure (intro/loop changes via onset/energy detection), stereo width if applicable
-- Implement feedback generation: features → prompt → structured critique (strengths,
-  improvements, specific timestamps if feasible)
-- Implement chat endpoint: maintain conversation history + track context, so follow-up questions
-  ("why do you say the low end is muddy?") stay grounded
-- Wire up `backend/app/routers/coach.py` (`/upload`, `/feedback`, `/chat`)
-- Wire up `frontend/app/coach/page.tsx` (upload UI, feedback panel, chat panel)
+  - Extract: tempo/BPM, key estimate (chroma + Krumhansl-Schmuckler, same approach as MIDI),
+    loudness/RMS, spectral centroid (brightness) — all deterministic, no LLM. Section
+    structure/stereo width deferred (not needed for a first pass per the feature spec)
+  - Feed features to Ollama for strengths/improvements/follow-up questions, with an
+    `ai_available` field on the response mirroring the MIDI Analyzer's optional-AI split
+- [x] Implemented chat endpoint: grounds every reply in the track's features + prior feedback
+      (in-memory per `track_id`; Phase 4 persists this)
+- [x] Wire up `backend/app/routers/coach.py` (`/upload`, `/feedback`, `/chat`) — maps
+      `AudioLoadError`→400, unknown `track_id`→404, `OllamaError`→503; 50MB upload cap
+- [x] Wire up `frontend/app/coach/page.tsx` (features panel, AI panel gated on `ai_available`,
+      chat)
+- [x] Verified end to end against live Ollama with a synthetic test beat, plus silence and
+      undecodable-file edge cases
 - See [docs/FEATURE_COACH.md](docs/FEATURE_COACH.md)
 
 ### Phase 4 — Polish
