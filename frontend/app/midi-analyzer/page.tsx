@@ -30,7 +30,7 @@ export default function MidiAnalyzerPage() {
 
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-bold">MIDI Analyzer</h1>
+      <h1 className="mb-2 font-display text-3xl uppercase tracking-wide">MIDI Analyzer</h1>
       <p className="mb-6 text-muted">
         Upload a .mid file to get key, BPM, note density, and a plain-English feel/mood read.
       </p>
@@ -45,7 +45,7 @@ export default function MidiAnalyzerPage() {
         <button
           onClick={handleAnalyze}
           disabled={!file || loading}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium disabled:opacity-40"
+          className="rounded-md bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
         >
           {loading ? "Analyzing..." : "Analyze"}
         </button>

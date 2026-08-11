@@ -62,7 +62,7 @@ export default function CoachPage() {
 
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-bold">AI Coach</h1>
+      <h1 className="mb-2 font-display text-3xl uppercase tracking-wide">AI Coach</h1>
       <p className="mb-6 text-muted">
         Upload a beat/melody/drum loop for structured feedback, then ask follow-up questions.
       </p>
@@ -77,7 +77,7 @@ export default function CoachPage() {
         <button
           onClick={handleUploadAndAnalyze}
           disabled={!file || loading !== null}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium disabled:opacity-40"
+          className="rounded-md bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
         >
           {loading === "upload" || loading === "feedback" ? "Analyzing..." : "Upload & Analyze"}
         </button>
@@ -162,7 +162,7 @@ export default function CoachPage() {
             <button
               onClick={handleSendMessage}
               disabled={!chatInput.trim() || loading !== null}
-              className="rounded-md border border-accent px-4 py-2 text-sm font-medium text-accent disabled:opacity-40"
+              className="rounded-md border border-accent px-4 py-2 text-sm font-medium uppercase tracking-wide text-accent transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
             >
               Send
             </button>

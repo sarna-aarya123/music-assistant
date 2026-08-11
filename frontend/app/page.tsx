@@ -3,7 +3,7 @@ import FeatureCard from "@/components/FeatureCard";
 export default function HomePage() {
   return (
     <div>
-      <h1 className="mb-2 text-3xl font-bold tracking-tight">AI Music Assistant</h1>
+      <h1 className="glitch-text mb-2 font-display text-4xl uppercase tracking-wide">AI Music Assistant</h1>
       <p className="mb-10 max-w-2xl text-muted">
         Feedback and analysis for producers working in the rage / plugg lane — upload a beat, a
         MIDI file, or your lyrics and get notes back in seconds. Runs entirely on your machine via

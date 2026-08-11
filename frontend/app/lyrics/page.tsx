@@ -50,7 +50,7 @@ export default function LyricsPage() {
 
   return (
     <div>
-      <h1 className="mb-2 text-2xl font-bold">Lyric Lab</h1>
+      <h1 className="mb-2 font-display text-3xl uppercase tracking-wide">Lyric Lab</h1>
       <p className="mb-6 text-muted">
         Paste your lyrics, get critique, or generate a few candidate lines that match your flow.
       </p>
@@ -74,7 +74,7 @@ export default function LyricsPage() {
         <button
           onClick={handleAnalyze}
           disabled={!lyrics.trim() || loading !== null}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium disabled:opacity-40"
+          className="rounded-md bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
         >
           {loading === "analyze" ? "Analyzing..." : "Get Feedback"}
         </button>
@@ -88,7 +88,7 @@ export default function LyricsPage() {
         <button
           onClick={handleGenerate}
           disabled={!lyrics.trim() || !themePrompt.trim() || loading !== null}
-          className="rounded-md border border-accent px-4 py-2 text-sm font-medium text-accent disabled:opacity-40"
+          className="rounded-md border border-accent px-4 py-2 text-sm font-medium uppercase tracking-wide text-accent transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
         >
           {loading === "generate" ? "Generating..." : "Generate Lines"}
         </button>

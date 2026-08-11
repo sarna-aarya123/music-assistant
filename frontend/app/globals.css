@@ -6,3 +6,55 @@ body {
   background-color: #0a0a0a;
   color: #f2f2f2;
 }
+
+/* Fixed grain + scanline texture behind everything — subtle, matches the reference artists'
+   distorted/lo-fi visual language without hurting text contrast. */
+.app-texture {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image:
+    repeating-linear-gradient(0deg, #fff 0px, transparent 1px, transparent 2px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+body > * {
+  position: relative;
+  z-index: 1;
+}
+
+.font-display {
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.02em;
+}
+
+@keyframes glitch-flicker {
+  0%,
+  100% {
+    text-shadow: 2px 0 #22e0ff, -2px 0 #ff2d55;
+    transform: translate(0, 0);
+  }
+  20% {
+    text-shadow: -2px 0 #22e0ff, 2px 0 #ff2d55;
+    transform: translate(-1px, 1px);
+  }
+  40% {
+    text-shadow: 2px 0 #22e0ff, -2px 0 #ff2d55;
+    transform: translate(1px, -1px);
+  }
+  60% {
+    text-shadow: -1px 0 #22e0ff, 1px 0 #ff2d55;
+    transform: translate(0, 0);
+  }
+  80% {
+    text-shadow: 1px 0 #22e0ff, -1px 0 #ff2d55;
+    transform: translate(1px, 1px);
+  }
+}
+
+.glitch-text:hover {
+  animation: glitch-flicker 0.35s infinite;
+}
