@@ -18,7 +18,7 @@ const monoFont = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "AI Music Assistant",
-  description: "AI Coach, MIDI Analyzer, and Lyric Lab for producers.",
+  description: "Simple feedback for your beats, MIDI, and lyrics.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
