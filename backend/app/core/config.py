@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3:8b"
 
     upload_dir: Path = Path("./uploads")
+    db_path: Path = Path("./app.db")
 
     cors_origins: str = "http://localhost:3000"
 

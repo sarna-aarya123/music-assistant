@@ -1,7 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { analyzeLyrics, ApiError, generateLyrics, type LyricsAnalyzeResponse } from "@/lib/api";
+import { useEffect, useState } from "react";
+import {
+  analyzeLyrics,
+  ApiError,
+  generateLyrics,
+  getLyricsHistory,
+  type LyricsAnalyzeResponse,
+  type LyricsHistoryEntry,
+} from "@/lib/api";
 
 export default function LyricsPage() {
   const [lyrics, setLyrics] = useState("");
@@ -12,11 +19,24 @@ export default function LyricsPage() {
   const [candidates, setCandidates] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<"analyze" | "generate" | null>(null);
+  const [history, setHistory] = useState<LyricsHistoryEntry[]>([]);
+
+  useEffect(() => {
+    getLyricsHistory()
+      .then(setHistory)
+      .catch(() => {});
+  }, []);
 
   function friendlyError(err: unknown) {
     if (!(err instanceof ApiError)) return "Something went wrong.";
     if (err.status === 503) return `${err.message} (Ollama isn't reachable — run \`ollama serve\`.)`;
     return err.message;
+  }
+
+  function refreshHistory() {
+    getLyricsHistory()
+      .then(setHistory)
+      .catch(() => {});
   }
 
   async function handleAnalyze() {
@@ -26,6 +46,7 @@ export default function LyricsPage() {
     setAnalysis(null);
     try {
       setAnalysis(await analyzeLyrics(lyrics, styleReference || undefined));
+      refreshHistory();
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -41,10 +62,24 @@ export default function LyricsPage() {
     try {
       const data = await generateLyrics(lyrics, themePrompt, styleReference || undefined);
       setCandidates(data.candidates);
+      refreshHistory();
     } catch (err) {
       setError(friendlyError(err));
     } finally {
       setLoading(null);
+    }
+  }
+
+  function loadHistoryEntry(entry: LyricsHistoryEntry) {
+    setLyrics(entry.lyrics);
+    setStyleReference(entry.style_reference ?? "");
+    if (entry.mode === "analyze") {
+      setAnalysis(entry.result as LyricsAnalyzeResponse);
+      setCandidates(null);
+    } else {
+      setThemePrompt(entry.theme_or_prompt ?? "");
+      setCandidates((entry.result as { candidates: string[] }).candidates);
+      setAnalysis(null);
     }
   }
 
@@ -128,6 +163,28 @@ export default function LyricsPage() {
           <ul className="space-y-1 text-sm text-muted">
             {candidates.map((line, i) => (
               <li key={i}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="mt-10">
+          <h2 className="mb-3 font-display text-lg uppercase tracking-wide text-muted">Recent</h2>
+          <ul className="space-y-2">
+            {history.map((entry) => (
+              <li key={entry.id}>
+                <button
+                  onClick={() => loadHistoryEntry(entry)}
+                  className="w-full rounded-lg border border-border bg-surface p-3 text-left text-sm transition hover:border-accent"
+                >
+                  <span className="font-medium uppercase text-accent">{entry.mode}</span>{" "}
+                  <span className="text-muted">
+                    — {entry.lyrics.split("\n")[0].slice(0, 60)} ·{" "}
+                    {new Date(entry.created_at).toLocaleString()}
+                  </span>
+                </button>
+              </li>
             ))}
           </ul>
         </div>
