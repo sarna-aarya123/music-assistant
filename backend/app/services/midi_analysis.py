@@ -1,20 +1,18 @@
-"""MIDI feature extraction + feel/mood interpretation.
+"""MIDI feature extraction + a rule-based feel/mood read, entirely in pure Python.
 
-Phase 1 — see PLAN.md and docs/FEATURE_MIDI_ANALYZER.md for the full spec.
-
-Deterministic features (tempo, time signature, key, density, range, velocity, track count) are
-extracted with pretty_midi and never touch the LLM — only the "feel"/mood narrative and
-suggestions come from Ollama, grounded in those features via the prompt.
+Every field on `MidiAnalysisResponse` is computed deterministically with `pretty_midi` — there is
+no model call anywhere in this module. `feel_summary`/`notes`/`suggestions` used to come from an
+LLM prompted with the extracted features; they're now produced by `_describe_features()`, a plain
+threshold-based text generator working off the same numbers. This keeps the response shape stable
+for the frontend while making the whole feature AI-free.
 """
 
-import json
 import math
 from pathlib import Path
 
 import pretty_midi
 
 from app.models.schemas import MidiAnalysisResponse
-from app.services import ollama_client
 
 # Krumhansl-Kessler key profiles: relative "weight" of each pitch class (starting at the tonic)
 # in a typical major/minor melody. Correlating a track's pitch-class histogram against rotated
@@ -23,27 +21,17 @@ _MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.
 _MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
 _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-_SYSTEM_PROMPT = (
-    "You are an experienced music producer friend who specializes in rage/plugg/trap production "
-    "(reference points: Ken Carson, Playboi Carti, OsamaSon, Draco FM). A producer just handed "
-    "you a table of objective features extracted from a MIDI file they're working on. Give them "
-    "a plain-English read on the feel/mood, plus a couple of concrete suggestions. Sound like a "
-    "peer giving real notes, not a textbook. Be specific, not generic. "
-    "Respond with ONLY valid JSON (no markdown code fences, no extra commentary) in exactly this "
-    'shape: {"feel_summary": "one short sentence", "notes": "2-4 sentence paragraph", '
-    '"suggestions": ["suggestion 1", "suggestion 2"]}'
-)
+
+def _non_drum_notes(instruments: list) -> list:
+    return [note for inst in instruments if not inst.is_drum for note in inst.notes]
 
 
 def _pitch_class_histogram(instruments: list) -> list[float]:
     """Duration-weighted pitch-class histogram across all non-drum notes."""
     histogram = [0.0] * 12
-    for instrument in instruments:
-        if instrument.is_drum:
-            continue
-        for note in instrument.notes:
-            duration = max(note.end - note.start, 0.01)
-            histogram[note.pitch % 12] += duration
+    for note in _non_drum_notes(instruments):
+        duration = max(note.end - note.start, 0.01)
+        histogram[note.pitch % 12] += duration
     return histogram
 
 
@@ -96,12 +84,12 @@ def _time_signature(midi_data: pretty_midi.PrettyMIDI) -> str:
 
 
 def _note_density(instruments: list, duration: float) -> float:
-    total_notes = sum(len(inst.notes) for inst in instruments if not inst.is_drum)
+    total_notes = len(_non_drum_notes(instruments))
     return round(total_notes / duration, 2) if duration > 0 else 0.0
 
 
 def _pitch_range(instruments: list) -> tuple[str, str]:
-    pitches = [note.pitch for inst in instruments if not inst.is_drum for note in inst.notes]
+    pitches = [note.pitch for note in _non_drum_notes(instruments)]
     if not pitches:
         return ("N/A", "N/A")
     return (
@@ -115,33 +103,134 @@ def _avg_velocity(instruments: list) -> int:
     return round(sum(velocities) / len(velocities)) if velocities else 0
 
 
-async def _interpret_features(feature_summary: str) -> tuple[bool, str, str, list[str]]:
-    """Ask Ollama for a feel/mood read on top of the deterministic features.
+def _velocity_range(instruments: list) -> tuple[int, int]:
+    velocities = [note.velocity for inst in instruments for note in inst.notes]
+    return (min(velocities), max(velocities)) if velocities else (0, 0)
 
-    This is a pure enhancement — MIDI analysis works fully without it. If Ollama isn't installed
-    or isn't running locally, this fails fast (connection refused, no long timeout) and the caller
-    falls back to the deterministic features alone with `ai_available=False`.
+
+def _unique_pitch_classes(instruments: list) -> int:
+    return len({note.pitch % 12 for note in _non_drum_notes(instruments)})
+
+
+def _avg_note_length(instruments: list) -> float:
+    notes = _non_drum_notes(instruments)
+    if not notes:
+        return 0.0
+    return round(sum(note.end - note.start for note in notes) / len(notes), 3)
+
+
+def _polyphony(instruments: list) -> int:
+    """Max number of non-drum notes sounding at the same instant, via a sweep line."""
+    events: list[tuple[float, int]] = []
+    for note in _non_drum_notes(instruments):
+        events.append((note.start, 1))
+        events.append((note.end, -1))
+    if not events:
+        return 0
+    # Note-off events (-1) sort before note-on events (1) at the same timestamp so a note ending
+    # exactly when another starts isn't double-counted as simultaneous.
+    events.sort(key=lambda e: (e[0], e[1]))
+    current = peak = 0
+    for _, delta in events:
+        current += delta
+        peak = max(peak, current)
+    return peak
+
+
+def _syncopation(instruments: list, bpm: float) -> float:
+    """Fraction of note onsets that land on an off-beat eighth-note subdivision rather than a beat.
+
+    A simplified proxy for syncopation: quantizes each onset to the nearest 16th-note grid point
+    and checks whether that point is a full beat (on-beat) or an "and" (off-beat). Doesn't account
+    for meter/accent weighting the way a music-theory-grade syncopation score would.
     """
-    try:
-        raw = await ollama_client.generate(feature_summary, system=_SYSTEM_PROMPT)
-    except ollama_client.OllamaError:
-        return False, "", "", []
-
-    try:
-        data = ollama_client.parse_json_response(raw)
-        return (
-            True,
-            str(data.get("feel_summary", "")).strip(),
-            str(data.get("notes", "")).strip(),
-            [str(s).strip() for s in data.get("suggestions", [])],
-        )
-    except (json.JSONDecodeError, AttributeError):
-        # Ollama IS reachable here, it just returned something unparseable — distinct from the
-        # "not available at all" case above, so still report ai_available=True.
-        return True, "Feel summary unavailable — the model returned unparseable output.", raw.strip(), []
+    notes = _non_drum_notes(instruments)
+    if not notes or bpm <= 0:
+        return 0.0
+    beat_sec = 60.0 / bpm
+    sixteenth = beat_sec / 4
+    off_beat_count = 0
+    for note in notes:
+        grid_index = round(note.start / sixteenth)
+        # On-beat = falls on a quarter-note grid point (every 4th sixteenth); everything else,
+        # including the "and" of the beat, counts as off-beat.
+        if grid_index % 4 != 0:
+            off_beat_count += 1
+    return round(off_beat_count / len(notes), 2)
 
 
-async def analyze_midi(file_path: Path, use_ai: bool = False) -> MidiAnalysisResponse:
+def _describe_features(
+    bpm: float,
+    key: str,
+    note_density: float,
+    avg_velocity: int,
+    velocity_range: tuple[int, int],
+    avg_note_length_sec: float,
+    polyphony: int,
+    syncopation: float,
+    unique_pitch_classes: int,
+    duration: float,
+) -> tuple[str, str, list[str]]:
+    """Rule-based feel/mood read — plain Python thresholds on the extracted features, no model call."""
+    mode = "minor" if "minor" in key else "major" if "major" in key else None
+
+    if bpm < 80:
+        tempo_word = "slow, laid-back"
+    elif bpm < 120:
+        tempo_word = "mid-tempo"
+    elif bpm < 150:
+        tempo_word = "up-tempo, energetic"
+    else:
+        tempo_word = "fast, high-energy"
+
+    mood_word = "moody/dark" if mode == "minor" else "bright/uplifting" if mode == "major" else "tonally ambiguous"
+    density_word = "sparse" if note_density < 2 else "moderately dense" if note_density < 6 else "busy"
+    texture_word = "monophonic" if polyphony <= 1 else "thin harmony" if polyphony <= 3 else "dense/chordal"
+
+    feel_summary = f"{tempo_word.capitalize()} and {mood_word}, with a {density_word} {texture_word} texture."
+
+    sentences = []
+    sentences.append(
+        f"At {bpm:.0f} BPM in {key}, this reads as {tempo_word} and {mood_word}."
+    )
+    sentences.append(
+        f"Note density is {note_density} notes/sec ({density_word}), with up to {polyphony} notes "
+        f"overlapping at once ({texture_word})."
+    )
+    if syncopation >= 0.4:
+        rhythm_note = f"A large share of onsets ({syncopation * 100:.0f}%) land off the beat, giving it a syncopated, groove-forward feel."
+    elif syncopation >= 0.15:
+        rhythm_note = f"Some onsets ({syncopation * 100:.0f}%) land off the beat, adding light syncopation."
+    else:
+        rhythm_note = f"Onsets mostly land on the beat ({(1 - syncopation) * 100:.0f}% on-grid), giving it a straight, four-on-the-floor feel."
+    sentences.append(rhythm_note)
+
+    vel_span = velocity_range[1] - velocity_range[0]
+    if vel_span < 20:
+        sentences.append(f"Velocity stays tight ({velocity_range[0]}-{velocity_range[1]}), fairly flat dynamics.")
+    else:
+        sentences.append(f"Velocity ranges {velocity_range[0]}-{velocity_range[1]}, decent dynamic contrast.")
+
+    notes = " ".join(sentences)
+
+    suggestions: list[str] = []
+    if polyphony <= 1:
+        suggestions.append("This is monophonic — try layering a harmony or counter-melody.")
+    if unique_pitch_classes <= 3:
+        suggestions.append("Only a few distinct pitch classes are in use — could open up the melodic range.")
+    if vel_span < 15:
+        suggestions.append("Velocity is very flat — add some accent/dynamic variation so it doesn't feel robotic.")
+    if note_density < 1 and duration > 8:
+        suggestions.append("Fairly sparse for the track length — could support more movement in a quieter section.")
+    if syncopation < 0.1 and bpm >= 120:
+        suggestions.append("Rhythmically very on-grid for the tempo — some syncopation could add groove.")
+    if not suggestions:
+        suggestions.append("No obvious gaps — the arrangement already has decent range, rhythm, and dynamics.")
+
+    return feel_summary, notes, suggestions[:4]
+
+
+async def analyze_midi(file_path: Path) -> MidiAnalysisResponse:
     midi_data = pretty_midi.PrettyMIDI(str(file_path))
 
     bpm = _tempo(midi_data)
@@ -151,22 +240,25 @@ async def analyze_midi(file_path: Path, use_ai: bool = False) -> MidiAnalysisRes
     note_density = _note_density(midi_data.instruments, duration)
     pitch_range = _pitch_range(midi_data.instruments)
     avg_velocity = _avg_velocity(midi_data.instruments)
+    velocity_range = _velocity_range(midi_data.instruments)
     track_count = len(midi_data.instruments)
+    unique_pitch_classes = _unique_pitch_classes(midi_data.instruments)
+    avg_note_length_sec = _avg_note_length(midi_data.instruments)
+    polyphony = _polyphony(midi_data.instruments)
+    syncopation = _syncopation(midi_data.instruments, bpm)
 
-    feature_summary = (
-        f"BPM: {bpm:.1f}\n"
-        f"Time signature: {time_signature}\n"
-        f"Key estimate: {key}\n"
-        f"Note density: {note_density} notes/sec\n"
-        f"Pitch range: {pitch_range[0]} to {pitch_range[1]}\n"
-        f"Average velocity (0-127): {avg_velocity}\n"
-        f"Track/instrument count: {track_count}\n"
-        f"Duration: {duration:.1f}s"
+    feel_summary, notes, suggestions = _describe_features(
+        bpm=bpm,
+        key=key,
+        note_density=note_density,
+        avg_velocity=avg_velocity,
+        velocity_range=velocity_range,
+        avg_note_length_sec=avg_note_length_sec,
+        polyphony=polyphony,
+        syncopation=syncopation,
+        unique_pitch_classes=unique_pitch_classes,
+        duration=duration,
     )
-    if use_ai:
-        ai_available, feel_summary, notes, suggestions = await _interpret_features(feature_summary)
-    else:
-        ai_available, feel_summary, notes, suggestions = False, "", "", []
 
     return MidiAnalysisResponse(
         bpm=round(bpm, 1),
@@ -175,8 +267,12 @@ async def analyze_midi(file_path: Path, use_ai: bool = False) -> MidiAnalysisRes
         note_density=note_density,
         pitch_range=pitch_range,
         avg_velocity=avg_velocity,
-        ai_available=ai_available,
         track_count=track_count,
+        unique_pitch_classes=unique_pitch_classes,
+        velocity_range=velocity_range,
+        avg_note_length_sec=avg_note_length_sec,
+        polyphony=polyphony,
+        syncopation=syncopation,
         feel_summary=feel_summary,
         notes=notes,
         suggestions=suggestions,

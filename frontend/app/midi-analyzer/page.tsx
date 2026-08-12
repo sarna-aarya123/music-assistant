@@ -9,11 +9,9 @@ import {
   type MidiHistoryEntry,
 } from "@/lib/api";
 import { useCountUp } from "@/lib/useCountUp";
-import UseAiToggle from "@/components/UseAiToggle";
 
 export default function MidiAnalyzerPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [useAi, setUseAi] = useState(false);
   const [result, setResult] = useState<MidiAnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,7 +33,7 @@ export default function MidiAnalyzerPage() {
     setError(null);
     setResult(null);
     try {
-      const data = await analyzeMidi(file, useAi);
+      const data = await analyzeMidi(file);
       setResult(data);
       getMidiHistory()
         .then(setHistory)
@@ -59,16 +57,13 @@ export default function MidiAnalyzerPage() {
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className="mb-4 block w-full font-mono text-sm text-muted"
         />
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleAnalyze}
-            disabled={!file || loading}
-            className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
-          >
-            {loading ? "Analyzing..." : "Analyze"}
-          </button>
-          <UseAiToggle checked={useAi} onChange={setUseAi} />
-        </div>
+        <button
+          onClick={handleAnalyze}
+          disabled={!file || loading}
+          className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
+        >
+          {loading ? "Analyzing..." : "Analyze"}
+        </button>
       </div>
 
       {error && (
@@ -84,34 +79,30 @@ export default function MidiAnalyzerPage() {
             <Stat label="Note Density" value={result.note_density} />
             <Stat label="Avg Velocity" value={result.avg_velocity} />
             <Stat label="Tracks" value={result.track_count} />
+            <Stat label="Pitch Classes" value={result.unique_pitch_classes} />
+            <Stat label="Velocity Range" value={`${result.velocity_range[0]}-${result.velocity_range[1]}`} />
+            <Stat label="Avg Note Length" value={`${result.avg_note_length_sec}s`} />
+            <Stat label="Polyphony" value={result.polyphony} />
+            <Stat label="Syncopation" value={`${Math.round(result.syncopation * 100)}%`} />
           </div>
-          {result.ai_available ? (
-            <>
-              <div className="hud-panel border border-border bg-surface p-4">
-                <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">Feel</h3>
-                <p className="text-sm text-muted">{result.feel_summary}</p>
-              </div>
-              <div className="hud-panel border border-border bg-surface p-4">
-                <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">Notes</h3>
-                <p className="text-sm text-muted">{result.notes}</p>
-              </div>
-              {result.suggestions.length > 0 && (
-                <div className="hud-panel border border-border bg-surface p-4">
-                  <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
-                    Suggestions
-                  </h3>
-                  <ul className="list-inside list-disc text-sm text-muted">
-                    {result.suggestions.map((s, i) => (
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="border border-dashed border-border p-4 font-mono text-sm text-muted">
-              Turn on <span className="text-accent2">&quot;Use Ollama AI Coach&quot;</span> above and
-              try again for a written summary and suggestions too.
+          <div className="hud-panel border border-border bg-surface p-4">
+            <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">Feel</h3>
+            <p className="text-sm text-muted">{result.feel_summary}</p>
+          </div>
+          <div className="hud-panel border border-border bg-surface p-4">
+            <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">Notes</h3>
+            <p className="text-sm text-muted">{result.notes}</p>
+          </div>
+          {result.suggestions.length > 0 && (
+            <div className="hud-panel border border-border bg-surface p-4">
+              <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
+                Suggestions
+              </h3>
+              <ul className="list-inside list-disc text-sm text-muted">
+                {result.suggestions.map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

@@ -1,15 +1,15 @@
-"""Audio feature extraction + feedback generation for the AI Coach.
+"""Audio feature extraction + a rule-based feedback read, entirely in pure Python.
 
-Phase 3 — see PLAN.md and docs/FEATURE_COACH.md for the full spec.
+Every field on `CoachFeedbackResponse` is computed deterministically with `librosa` — there is no
+model call anywhere in the feedback path. `strengths`/`improvements` used to come from an LLM
+prompted with the extracted features; they're now produced by `_describe_features()`, a plain
+threshold-based text generator working off the same numbers.
 
-Deterministic features (tempo, key, loudness, brightness) are extracted with librosa alone and
-never touch the LLM — only the strengths/improvements/follow-up narrative and chat come from
-Ollama, grounded in those features via the prompt. Mirrors the MIDI Analyzer's Ollama-optional
-split (`ai_available` on the response); unlike Lyric Lab, feature extraction always works
-standalone.
+`continue_chat()` and `_track_context` are kept below, unused by any router, so a chat feature can
+be reconnected later without redesigning this module — see `app/services/ollama_client.py` for the
+same "kept but disconnected" treatment of the underlying Ollama client.
 """
 
-import json
 import math
 from pathlib import Path
 
@@ -25,33 +25,19 @@ _MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.
 _MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
 _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
-_FEEDBACK_SYSTEM_PROMPT = (
-    "You are an experienced music producer friend who specializes in rage/plugg/trap production "
-    "(reference points: Ken Carson, Playboi Carti, OsamaSon, Draco FM). A producer just handed "
-    "you a table of objective audio features extracted from a beat/loop they're working on. Give "
-    "them structured feedback grounded in those specific numbers where possible (e.g. 'the low "
-    "end sits well below 100Hz without competing with the kick' rather than generic praise). "
-    "Sound like a peer giving real notes, not a textbook. Keep every individual string under 25 "
-    "words — put each distinct point in its own array entry rather than combining points into one "
-    "long string. "
-    "Respond with ONLY valid JSON (no markdown code fences, no extra commentary) in exactly this "
-    'shape: {"strengths": ["short point 1", "short point 2"], '
-    '"improvements": ["short point 1", "short point 2", "short point 3"], '
-    '"follow_up_questions": ["short question 1", "short question 2"]}. '
-    "Double-check the JSON is complete and properly closed before responding."
-)
+_LOW_END_CUTOFF_HZ = 150.0
 
 _CHAT_SYSTEM_PROMPT_TEMPLATE = (
-    "You are an experienced music producer friend (reference points: Ken Carson, Playboi Carti, "
-    "OsamaSon, Draco FM) continuing a conversation about a specific track. Stay grounded in the "
-    "extracted features and the feedback you already gave below — don't contradict them, and if "
-    "the producer asks something the features can't answer (e.g. 'does this sound like "
-    "[artist]?'), say so rather than guessing.\n\n{context}"
+    "You are an experienced music producer friend continuing a conversation about a specific "
+    "track. Stay grounded in the extracted features and the feedback you already gave below — "
+    "don't contradict them, and if the producer asks something the features can't answer, say so "
+    "rather than guessing.\n\n{context}"
 )
 
 # In-memory grounding context for chat, keyed by track_id — the extracted features plus whatever
-# feedback was already given, so every chat turn stays grounded instead of going generic.
-# Phase 4 ("Polish" in PLAN.md) persists this; in-memory is fine for Phase 3.
+# feedback was already given. Not currently populated by any active route (chat is disconnected);
+# `generate_feedback` still fills it in so `continue_chat` works immediately once chat is
+# reconnected, without needing every existing track re-analyzed first.
 _track_context: dict[str, str] = {}
 
 
@@ -84,6 +70,17 @@ def _estimate_key(chroma_mean: np.ndarray) -> str:
     return best_label
 
 
+def _low_end_ratio(spec_mag: np.ndarray, freqs: np.ndarray) -> float:
+    """Fraction of total spectral energy sitting below `_LOW_END_CUTOFF_HZ`."""
+    energy = spec_mag**2
+    total = float(np.sum(energy))
+    if total == 0:
+        return 0.0
+    low_mask = freqs < _LOW_END_CUTOFF_HZ
+    low_energy = float(np.sum(energy[low_mask, :]))
+    return round(low_energy / total, 3)
+
+
 def _extract(file_path: Path) -> dict:
     """Deterministic feature extraction with librosa alone — no LLM involved."""
     try:
@@ -99,18 +96,42 @@ def _extract(file_path: Path) -> dict:
     # Silence/near-silent or empty clips: tempo/key/spectral features are meaningless on zero
     # signal, so short-circuit rather than let librosa produce noisy nonsense.
     if len(y) == 0 or not np.any(y):
-        return {"duration_sec": duration_sec, "bpm": 0.0, "key": "Unknown", "rms_db": -120.0, "brightness_hz": 0.0}
+        return {
+            "duration_sec": duration_sec,
+            "bpm": 0.0,
+            "key": "Unknown",
+            "rms_db": -120.0,
+            "brightness_hz": 0.0,
+            "rolloff_hz": 0.0,
+            "zero_crossing_rate": 0.0,
+            "dynamic_range_db": 0.0,
+            "low_end_ratio": 0.0,
+            "onset_density": 0.0,
+        }
 
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     bpm = float(np.asarray(tempo).reshape(-1)[0]) if np.asarray(tempo).size else 0.0
 
+    stft = np.abs(librosa.stft(y))
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=(stft.shape[0] - 1) * 2)
+
     chroma = librosa.feature.chroma_stft(y=y, sr=sr)
     key = _estimate_key(chroma.mean(axis=1))
 
-    rms_mean = float(np.mean(librosa.feature.rms(y=y)))
+    rms = librosa.feature.rms(y=y)[0]
+    rms_mean = float(np.mean(rms))
     rms_db = round(20 * math.log10(rms_mean), 1) if rms_mean > 0 else -120.0
 
+    peak = float(np.max(np.abs(y)))
+    dynamic_range_db = round(20 * math.log10(peak / rms_mean), 1) if rms_mean > 0 and peak > 0 else 0.0
+
     brightness_hz = round(float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))), 1)
+    rolloff_hz = round(float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr))), 1)
+    zero_crossing_rate = round(float(np.mean(librosa.feature.zero_crossing_rate(y=y))), 4)
+    low_end_ratio = _low_end_ratio(stft, freqs)
+
+    onsets = librosa.onset.onset_detect(y=y, sr=sr, units="time")
+    onset_density = round(len(onsets) / duration_sec, 2) if duration_sec > 0 else 0.0
 
     return {
         "duration_sec": duration_sec,
@@ -118,6 +139,11 @@ def _extract(file_path: Path) -> dict:
         "key": key,
         "rms_db": rms_db,
         "brightness_hz": brightness_hz,
+        "rolloff_hz": rolloff_hz,
+        "zero_crossing_rate": zero_crossing_rate,
+        "dynamic_range_db": dynamic_range_db,
+        "low_end_ratio": low_end_ratio,
+        "onset_density": onset_density,
     }
 
 
@@ -125,62 +151,84 @@ async def extract_features(file_path: Path) -> dict:
     return _extract(file_path)
 
 
-async def _interpret_features(feature_summary: str) -> tuple[bool, list[str], list[str], list[str]]:
-    """Ask Ollama for strengths/improvements/follow-ups on top of the deterministic features.
+def _describe_features(features: TrackFeatures, duration_sec: float) -> tuple[list[str], list[str]]:
+    """Rule-based strengths/improvements — plain Python thresholds, no model call."""
+    strengths: list[str] = []
+    improvements: list[str] = []
 
-    Pure enhancement — feature extraction works fully without it. If Ollama isn't reachable, the
-    caller falls back to empty lists with `ai_available=False`, same pattern as the MIDI Analyzer.
-    """
-    try:
-        raw = await ollama_client.generate(
-            feature_summary, system=_FEEDBACK_SYSTEM_PROMPT, temperature=0.3
-        )
-    except ollama_client.OllamaError:
-        return False, [], [], []
+    if -16 <= features.rms_db <= -8:
+        strengths.append(f"Sits at a solid, competitive loudness ({features.rms_db} dB RMS).")
+    elif features.rms_db < -24:
+        improvements.append(f"Quiet overall ({features.rms_db} dB RMS) — consider raising the level.")
+    elif features.rms_db > -6:
+        improvements.append(f"Very loud/hot ({features.rms_db} dB RMS) — check for clipping/distortion.")
 
-    try:
-        data = ollama_client.parse_json_response(raw)
-        return (
-            True,
-            [str(s).strip() for s in data.get("strengths", [])],
-            [str(s).strip() for s in data.get("improvements", [])],
-            [str(s).strip() for s in data.get("follow_up_questions", [])],
-        )
-    except (json.JSONDecodeError, AttributeError):
-        return True, [], [], []
+    if features.dynamic_range_db >= 12:
+        strengths.append(f"Good dynamic contrast (peak sits {features.dynamic_range_db} dB above the average level).")
+    elif features.dynamic_range_db <= 6:
+        improvements.append(f"Dynamic range is narrow ({features.dynamic_range_db} dB) — may sound flat/over-compressed.")
+
+    if features.brightness_hz >= 3000:
+        strengths.append(f"Bright, present high end (spectral centroid {features.brightness_hz:.0f} Hz).")
+    elif features.brightness_hz < 1200:
+        improvements.append(f"Sounds dark/muffled (spectral centroid {features.brightness_hz:.0f} Hz) — could use more top end.")
+
+    if features.low_end_ratio >= 0.35:
+        strengths.append(f"Strong low-end presence ({features.low_end_ratio * 100:.0f}% of energy below {_LOW_END_CUTOFF_HZ:.0f} Hz).")
+    elif features.low_end_ratio < 0.1:
+        improvements.append(f"Low end feels thin ({features.low_end_ratio * 100:.0f}% of energy below {_LOW_END_CUTOFF_HZ:.0f} Hz).")
+
+    if features.onset_density >= 3:
+        strengths.append(f"Dense rhythmic activity ({features.onset_density}/sec) — feels busy and energetic.")
+    elif features.onset_density < 0.8 and duration_sec > 4:
+        improvements.append(f"Sparse rhythmic activity ({features.onset_density}/sec) — could use more movement.")
+
+    if not strengths:
+        strengths.append("No standout strengths flagged by the numbers — nothing wrong, just nothing extreme either way.")
+    if not improvements:
+        improvements.append("No red flags in the extracted features.")
+
+    return strengths[:4], improvements[:4]
 
 
-async def generate_feedback(track_id: str, file_path: Path, use_ai: bool = False) -> CoachFeedbackResponse:
+async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResponse:
     raw = _extract(file_path)
     features = TrackFeatures(
-        bpm=raw["bpm"], key=raw["key"], rms_db=raw["rms_db"], brightness_hz=raw["brightness_hz"]
+        bpm=raw["bpm"],
+        key=raw["key"],
+        rms_db=raw["rms_db"],
+        brightness_hz=raw["brightness_hz"],
+        rolloff_hz=raw["rolloff_hz"],
+        zero_crossing_rate=raw["zero_crossing_rate"],
+        dynamic_range_db=raw["dynamic_range_db"],
+        low_end_ratio=raw["low_end_ratio"],
+        onset_density=raw["onset_density"],
     )
+
+    strengths, improvements = _describe_features(features, raw["duration_sec"])
+
     feature_summary = (
         f"BPM: {features.bpm:.1f}\n"
         f"Key estimate: {features.key}\n"
         f"Loudness (RMS): {features.rms_db} dB\n"
+        f"Dynamic range: {features.dynamic_range_db} dB\n"
         f"Brightness (spectral centroid): {features.brightness_hz:.0f} Hz\n"
+        f"Rolloff: {features.rolloff_hz:.0f} Hz\n"
+        f"Low-end energy ratio: {features.low_end_ratio}\n"
+        f"Onset density: {features.onset_density}/sec\n"
         f"Duration: {raw['duration_sec']:.1f}s"
     )
-
-    if use_ai:
-        ai_available, strengths, improvements, follow_up_questions = await _interpret_features(feature_summary)
-    else:
-        ai_available, strengths, improvements, follow_up_questions = False, [], [], []
-
     _track_context[track_id] = (
         f"Track features:\n{feature_summary}\n\n"
-        f"Feedback already given — strengths: {'; '.join(strengths) or '(none yet)'}\n"
-        f"Feedback already given — improvements: {'; '.join(improvements) or '(none yet)'}"
+        f"Feedback already given — strengths: {'; '.join(strengths)}\n"
+        f"Feedback already given — improvements: {'; '.join(improvements)}"
     )
 
     return CoachFeedbackResponse(
         track_id=track_id,
         features=features,
-        ai_available=ai_available,
         strengths=strengths,
         improvements=improvements,
-        follow_up_questions=follow_up_questions,
     )
 
 

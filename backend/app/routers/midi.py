@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Form, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.core.config import settings
 from app.models.schemas import MidiAnalysisResponse, MidiHistoryEntry
@@ -12,7 +12,7 @@ _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB — MIDI files are tiny; generous c
 
 
 @router.post("/analyze", response_model=MidiAnalysisResponse)
-async def analyze(file: UploadFile, use_ai: bool = Form(False)):
+async def analyze(file: UploadFile):
     if not file.filename.lower().endswith((".mid", ".midi")):
         raise HTTPException(status_code=400, detail="File must be a .mid or .midi file.")
 
@@ -28,7 +28,7 @@ async def analyze(file: UploadFile, use_ai: bool = Form(False)):
             f.write(chunk)
 
     try:
-        result = await midi_analysis.analyze_midi(dest, use_ai=use_ai)
+        result = await midi_analysis.analyze_midi(dest)
     except Exception as exc:  # pretty_midi raises several distinct error types on malformed files
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Could not parse MIDI file: {exc}") from exc
