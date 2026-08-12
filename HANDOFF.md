@@ -1,238 +1,105 @@
-# Project Handoff (v2)
-
-Written because the session ran out of context. This replaces the previous HANDOFF.md (which
-covered through end of Phase 3) — everything in that one is now folded in here. **Code changes
-described below were made this session and are real, but some are UNCOMMITTED — see "Git state"
-before doing anything else.**
+# Handoff
 
 ## Purpose
 
-AI Music Assistant — three features for producers in the rage/plugg lane (style references: Ken
-Carson, Playboi Carti, OsamaSon, Draco FM). Local-first: runs entirely via a local Ollama instance,
-no account, no cloud API key.
+Local-first AI assistant for producers in the rage/plugg lane (Ken Carson, Playboi Carti,
+OsamaSon, Draco FM as style references). Three independent features, no account, no cloud API key
+— everything runs against a local Ollama instance. Full narrative docs: `README.md`, `PLAN.md`,
+`ARCHITECTURE.md`, `docs/FEATURE_*.md`.
 
-1. **MIDI Analyzer** (Phase 1) — done.
-2. **Lyric Lab** (Phase 2) — done.
-3. **AI Coach** (Phase 3) — done.
-4. **Polish** (Phase 4) — in progress, this session's work. Three sub-parts: visual identity
-   (done, committed, pushed), SQLite history persistence (done, **uncommitted**), error/loading
-   polish (not started).
+## Current working features (all three phases + polish complete)
 
-Full narrative docs: `README.md`, `PLAN.md`, `ARCHITECTURE.md`, `CLAUDE.md`, `docs/FEATURE_*.md`.
-PLAN.md is up to date through Phase 3; it has NOT yet been updated to reflect Phase 4 progress.
+1. **MIDI Analyzer** — upload a `.mid`/`.midi` file, get BPM, time signature, key, note density,
+   pitch range, avg velocity, track count (deterministic, `pretty_midi`), plus an optional
+   Ollama-generated feel/mood summary + suggestions.
+2. **Lyric Lab** — paste lyrics, get critique (rhyme/repetition/cadence/imagery, line-by-line) or
+   generate N candidate lines matching an existing flow. Pure LLM feature, no non-AI mode.
+3. **AI Coach** — upload an audio file (`.wav/.mp3/.m4a/.flac/.aiff`), get deterministic features
+   (BPM, key, RMS loudness, spectral brightness via `librosa`) plus optional Ollama-generated
+   strengths/improvements/follow-up questions, then multi-turn chat grounded in those features.
 
-## Repo / GitHub
+All three persist history to SQLite and expose it via a "Recent" panel on each page (click to
+reload a past result). Visual identity (Anton display font, sharp corners, noise texture, glitch
+hover accents) is done. File-size caps and basic error/loading polish are done.
 
-- Git-initialized and pushed to **`https://github.com/sarna-aarya123/music-assistant`** (public).
-- `gh` CLI is installed and authenticated as `sarna-aarya123` on this machine (`gh auth status` to
-  confirm). Auth was set up this way because the user asked to use the `sarnaaarya@gmail.com`
-  GitHub account specifically, not whatever `git config` had locally (that's a different email,
-  `aarya.sarna@gmail.com` — just an artifact of local git config, not meaningful).
-- **Standing instruction from the user: push to git every time an update is made or when moving to
-  a new phase.** Don't batch multiple phases into one push.
+## Architecture
 
-## Git state RIGHT NOW — read this first
+- **Backend**: FastAPI (`backend/app/`), routers are thin (validate → call service → shape
+  response), all logic lives in `backend/app/services/*.py`.
+  - `routers/{midi,lyrics,coach}.py` — one per feature, prefixed `/api/{midi,lyrics,coach}`.
+  - `services/midi_analysis.py`, `services/audio_analysis.py`, `services/lyrics_lab.py` — feature
+    logic. Both MIDI and Coach split deterministic feature extraction (library-only, always works)
+    from an LLM narrative layer (optional, `ai_available` flag on the response). Lyric Lab has no
+    non-AI mode — critique/generation are inherently LLM tasks, so `OllamaError`→503 and
+    unparseable-output (`LyricsLLMError`)→502 propagate straight to the router.
+  - `services/ollama_client.py` — the **only** place that talks to Ollama's HTTP API
+    (`chat()`/`generate()`). Also owns `parse_json_response()`, a shared helper that strips
+    markdown code fences and repairs a `\'` escape bug `llama3:8b` regularly emits — every feature
+    that parses LLM JSON output routes through this rather than hand-rolling `json.loads`.
+  - `services/history.py` — the only place that owns SQLite specifics (`save_*`/`list_*`/`get_*`
+    per feature), mirroring how `ollama_client.py` owns Ollama specifics.
+  - `core/db.py` — schema (5 tables: `midi_analyses`, `lyric_sessions`, `coach_tracks`,
+    `coach_feedback`, `coach_chat_messages`) + `init_db()` (called from `main.py`'s `lifespan`) +
+    an `aiosqlite` `connect()` context manager (fresh connection per call, no pooling — fine for a
+    single-user local tool).
+  - `core/config.py` — `pydantic-settings`, reads `backend/.env` (`OLLAMA_HOST`, `OLLAMA_MODEL`,
+    `UPLOAD_DIR`, `CORS_ORIGINS`; `db_path` defaults to `./app.db`, not env-configurable).
+  - `models/schemas.py` — all request/response Pydantic models, shared contract with the frontend.
+  - No auth. Uploaded files go to `backend/uploads/` (gitignored); Coach's in-memory
+    `_track_context` dict (keyed by `track_id`) is the fast path for chat grounding, with
+    `history.get_coach_context()` as a SQLite fallback when a track isn't in memory (e.g. after a
+    restart).
+- **Frontend**: Next.js App Router + TypeScript + Tailwind (`frontend/`).
+  - One page per feature (`app/{coach,lyrics,midi-analyzer}/page.tsx`), each: upload/input form →
+    result display (gated on `ai_available` where relevant) → "Recent" history panel. Pages never
+    call `fetch()` directly — everything routes through `lib/api.ts`.
+  - `lib/api.ts` — typed fetch wrappers + history types mirroring `schemas.py`. Every call goes
+    through `safeFetch()`, which turns a network-level failure (backend unreachable) into a
+    readable `ApiError` instead of a raw `TypeError`. `analyzeMidi()`/`uploadTrack()` reject
+    oversized files client-side (10MB / 50MB) before making a request.
+  - Visual identity: Anton font via `next/font/google` (`.font-display`), sharp corners (Tailwind
+    `borderRadius` scale overridden globally), SVG noise+scanline texture (`.app-texture`), accent
+    glow + two-tone glitch-flicker hover animation (`.glitch-text`).
 
-Last commit (`4e9b67b`, pushed) is the Phase 4 visual identity work. **Everything below that is
-implemented, tested, and working, but sitting uncommitted in the working tree**:
+## Important technical decisions/constraints
 
-```
-Modified:
-  backend/app/core/config.py
-  backend/app/main.py
-  backend/app/models/schemas.py
-  backend/app/routers/coach.py
-  backend/app/routers/lyrics.py
-  backend/app/routers/midi.py
-  backend/app/services/audio_analysis.py
-  backend/requirements.txt
-  frontend/app/coach/page.tsx
-  frontend/app/lyrics/page.tsx
-  frontend/app/midi-analyzer/page.tsx
-  frontend/lib/api.ts
-  frontend/next-env.d.ts
-Untracked:
-  backend/app/core/db.py
-  backend/app/services/history.py
-```
+- **Deterministic-vs-LLM split is a hard rule** (see `CLAUDE.md`): a numeric fact (BPM, key,
+  duration, loudness) must never come only from an LLM call. MIDI Analyzer and AI Coach both
+  degrade to `ai_available: false` if Ollama is unreachable rather than erroring — the feature
+  still fully works without AI. Lyric Lab is the sole exception (inherently LLM-only).
+  New features should keep following this split.
+- All new Ollama calls must go through `ollama_client.chat()`/`generate()`, not hit the HTTP API
+  directly — this is the intended swap point if/when a hosted model replaces local Ollama later
+  (explicitly optional/future, not scheduled).
+- All LLM JSON parsing must go through `ollama_client.parse_json_response()`.
+- Upload size caps: Coach 50MB, MIDI 10MB — enforced both server-side (chunked read, 413) and
+  client-side (`lib/api.ts`, fails before any network call).
+- `backend/app.db` (SQLite) is gitignored. **Never delete it while the server is running** —
+  `history.py`'s `connect()` opens a fresh connection per call, so a mid-run delete silently
+  recreates an empty DB with no tables (500s with "no such table"). Stop the server first, or just
+  leave the file alone between sessions.
+- Build order: this project was built one phase at a time (MIDI → Lyrics → Coach → Polish), per
+  `PLAN.md`. Don't build a later phase's logic while working on an earlier one.
 
-This is all the **SQLite persistence** sub-part of Phase 4 (see below). It was manually verified
-working end-to-end (curl + a live browser preview session) but **never committed** — the session
-was interrupted (laptop needed to charge) right after verification, before the commit step.
+## Known bugs/issues
 
-**First thing next session: review this diff, then commit and push it** (with a message
-describing SQLite history persistence — model it on the commit style of `4e9b67b`/`f8499d3`/etc.,
-i.e. explain *why* not just *what*, and note it was verified end-to-end). Don't just blindly
-commit without a quick read — re-verify the backend still boots and a couple of endpoints respond,
-since some time may have passed.
+- **`llama3:8b` occasionally still returns unparseable JSON** despite the `parse_json_response()`
+  repair pass (fences + `\'` fix) — e.g. live-verified this session: a MIDI analyze call returned
+  `feel_summary: "Feel summary unavailable — the model returned unparseable output."` with the raw
+  model text dumped into `notes` instead. This is a distinct, still-open case from the
+  `ai_available=False` (Ollama unreachable) path — Ollama *is* reachable, it just emits malformed
+  JSON sometimes. Not reproducible on every call with the same input. No further mitigation
+  attempted beyond the existing fence-strip + escape-repair.
+- No automated test suite exists for either backend or frontend — all verification so far has been
+  manual (curl + live browser checks via the Claude Preview tool).
+- No file-size/duration cap on Lyric Lab requests (only upload-based features have size caps —
+  arguably fine since it's plain text, but unbounded).
 
-## What's done this session, in order
+## Next task
 
-### 1. GitHub account setup + push (committed)
-Installed `gh` CLI via winget, ran `gh auth login --web` (device-code flow, user authenticated in
-browser as `sarna-aarya123`), created the `music-assistant` repo (public) via
-`gh repo create --source=. --remote=origin --push`. Also did general repo housekeeping before this:
-git-init, removed leftover test upload files, added `.claude/` to `.gitignore` (it holds Claude
-Code's own local tool state — lockfiles, `settings.local.json` — that had gotten swept up by
-`git add -A`, not project source).
-
-### 2. Phase 2 — Lyric Lab (committed: `409c38f`)
-Implemented `backend/app/services/lyrics_lab.py` (`analyze_lyrics`, `generate_lines`) — both call
-Ollama with structured JSON prompts. No non-AI fallback here by design (see CLAUDE.md convention
-below) — critique/generation are inherently LLM tasks. Router maps `OllamaError`→503,
-unparseable-output (`LyricsLLMError`)→502. Frontend renders the line-by-line breakdown. Verified
-end-to-end against live Ollama (`llama3:8b`).
-
-### 3. Phase 3 — AI Coach (committed: `f8499d3`)
-Implemented `backend/app/services/audio_analysis.py`. Deterministic features (BPM, key, RMS
-loudness, spectral brightness/centroid) via `librosa` alone, no LLM — mirrors the MIDI Analyzer's
-"Ollama optional" split via a new `ai_available` field added to `CoachFeedbackResponse` (it was
-missing from the original schema stub). Ollama layers on strengths/improvements/follow-up
-questions; chat is grounded in features + prior feedback via an in-memory `_track_context` dict
-keyed by `track_id`.
-
-**Bug found and fixed here, worth knowing about:** `llama3:8b` regularly emitted invalid `\'` JSON
-escapes and, under a verbose prompt, sometimes left arrays/objects unclosed (valid `done_reason:
-stop` from Ollama, just genuinely malformed JSON — not a token-limit truncation issue). Fixed with:
-- A shared `ollama_client.parse_json_response()` helper (strips code fences + repairs the `\'`
-  escape) — replaces three near-duplicate parsing blocks that used to live separately in
-  `midi_analysis.py`, `lyrics_lab.py`, and `audio_analysis.py`. **Any new feature that parses LLM
-  JSON output should use this helper, not hand-roll its own `json.loads`.**
-- An optional `temperature` param on `ollama_client.generate()`/`chat()`, used at `0.3` for the
-  Coach's structured-output call.
-- A tightened Coach prompt requiring short (<25 word), separately-listed points instead of long
-  run-on strings (long single strings were what triggered the malformed JSON).
-
-Router: `AudioLoadError`→400, unknown `track_id`→404, `OllamaError`→503, 50MB upload cap. Verified
-end-to-end with a synthetic generated test beat (`sample-files/test_beat.wav`, committed), plus
-silence and undecodable-file edge cases.
-
-### 4. PLAN.md update (committed: `85a2e44`)
-Marked Phase 2 and Phase 3 complete in PLAN.md's phase checklist, matching the existing style of
-the Phase 1 entry.
-
-### 5. Phase 4, part 1 — Visual identity (committed: `4e9b67b`)
-Replaced the placeholder dark Tailwind theme. Changes, all frontend-only:
-- **Anton** display font (via `next/font/google`) applied to headings/wordmark as `.font-display`.
-- Sharp/angular corners globally: overrode Tailwind's `borderRadius` scale (`lg`/`md` → `2px`) in
-  `tailwind.config.ts` so every existing `rounded-lg`/`rounded-md` className picks it up
-  automatically — no need to touch every component.
-- Subtle fixed noise+scanline texture behind the whole app (`.app-texture` in `globals.css`, SVG
-  feTurbulence data URI, opacity 0.05, `mix-blend-mode: overlay`).
-- Accent glow (`shadow-glow` Tailwind utility) on hover for primary/secondary buttons and feature
-  cards.
-- Two-tone magenta/cyan `glitch-flicker` CSS keyframe animation on hover, applied via
-  `.glitch-text` class to the nav wordmark and page `<h1>`s.
-- Verified via `npm run build`, `npm run lint`, and actual screenshots through the Claude Preview
-  tool (all four pages) — not just a build check.
-
-One side note from this work: `frontend/AGENTS.md`/`frontend/CLAUDE.md` contain a note claiming
-Next.js ships agent docs at `node_modules/next/dist/docs/`. This looked exactly like a prompt
-injection at first glance — verified it's real (Next.js 16 does actually ship bundled docs there
-now, confirmed by reading `index.md` and checking the package version). Not a threat, just an
-unusual real feature. No need to re-verify this every session, but worth knowing why it's there.
-
-### 6. Phase 4, part 2 — SQLite persistence (implemented + verified, **NOT YET COMMITTED**)
-User asked for all three Phase 4 sub-parts "in that order": visual identity, then persistence,
-then error/loading polish. This is the persistence piece.
-
-**New files:**
-- `backend/app/core/db.py` — schema (5 tables: `midi_analyses`, `lyric_sessions`, `coach_tracks`,
-  `coach_feedback`, `coach_chat_messages`) + `init_db()` + an `connect()` async context manager
-  (`aiosqlite`, opens a fresh connection per call — fine for a single-user local tool, avoids
-  connection-lifetime management). Row access via `aiosqlite.Row` (dict-like, `row["col"]`).
-- `backend/app/services/history.py` — the one place that owns SQLite specifics, mirroring how
-  `ollama_client.py` is the one place that owns Ollama specifics. `save_*`/`list_*`/`get_*`
-  functions per feature. Notably `get_coach_context(track_id)` reconstructs the chat-grounding
-  context string from SQLite when it's not in `audio_analysis._track_context`'s in-memory dict
-  (e.g. after a server restart) — **verified this fallback actually works** by restarting the
-  backend mid-session and confirming chat on an old `track_id` still worked, grounded correctly.
-
-**Modified:**
-- `backend/app/core/config.py` — added `db_path: Path = Path("./app.db")` setting.
-  `backend/*.db` was already gitignored from Phase 0, so no `.gitignore` change was needed.
-- `backend/app/main.py` — switched from plain `FastAPI()` to a `lifespan` context manager that
-  calls `init_db()` on startup.
-- `backend/app/models/schemas.py` — added `MidiHistoryEntry`, `LyricsHistoryEntry`,
-  `CoachHistoryEntry`, `CoachChatHistoryEntry`.
-- All three routers (`midi.py`, `lyrics.py`, `coach.py`) — call the relevant `history.save_*`
-  right after producing a result, and expose new `GET .../history` endpoints (plus
-  `GET /api/coach/history/{track_id}/chat` for past conversations). Also fixed two other stale
-  bits while in these files: MIDI router's leftover `NotImplementedError`→501 handling (dead code
-  since Phase 1 shipped) replaced with a real try/except around `pretty_midi` parse failures →400;
-  same idea already existed for Coach's `AudioLoadError`.
-- `backend/app/services/audio_analysis.py` — `continue_chat()` now falls back to
-  `history.get_coach_context()` when the track isn't in memory.
-- `backend/requirements.txt` — added `aiosqlite==0.22.1`.
-- Frontend: `lib/api.ts` (history types + fetch wrappers for all three features) and all three
-  page components — each got a "Recent" history panel at the bottom (fetched on mount, refreshed
-  after a new analysis/session, click-to-reload past results into the existing view). Coach's
-  version also reloads past chat via `getCoachChatHistory`.
-
-**Verification performed** (all passed): full upload→feedback→chat→history cycle for Coach via
-curl: including killing and restarting the backend mid-session to prove the DB-fallback grounding
-context path works, not just the in-memory happy path. MIDI analyze→history via curl. Lyrics
-analyze→history via curl. Frontend: `npm run build` and `npm run lint` clean, then live-verified
-in a real browser via the Claude Preview tool — confirmed the "Recent" panel renders and that
-clicking a past entry correctly reloads it (did this for both MIDI Analyzer and Coach pages,
-including scrolling to confirm Coach's chat history actually repopulated, not just the feedback
-panel).
-
-**One gotcha hit and resolved, worth knowing for next time:** mid-session, `backend/app.db` was
-manually `rm -f`'d as part of test cleanup while the uvicorn process was still running. Because
-`connect()` opens a fresh SQLite connection per call rather than holding one open, the deleted file
-silently got recreated as an *empty* file (no tables) on the next write, and history endpoints
-started 500ing with `no such table`. Fix was just restarting the backend (re-runs `init_db()` on
-startup). **Lesson: never delete `backend/app.db` while the server is running** — stop it first,
-or don't delete it at all (it's gitignored, harmless to leave around between sessions).
-
-## What's NOT done yet
-
-1. **Commit + push the SQLite persistence work** (see "Git state" above) — this is the immediate
-   next step.
-2. **Phase 4, part 3 — error/loading polish.** Not started at all. Per PLAN.md's Phase 4 bullet:
-   "Error handling / loading states / file-size limits polish." Some of this arguably already
-   happened piecemeal while implementing persistence (MIDI's 400 on bad file, upload size cap was
-   actually already done back in Phase 3 for Coach). Worth a real pass over all three pages'
-   loading states and error copy for consistency before calling Phase 4 done.
-3. **Update PLAN.md** to reflect Phase 4 progress (visual identity done, persistence done, polish
-   pending) — wasn't done this session, should happen alongside or after the persistence commit.
-4. Phase 4's optional last bullet — "swap Ollama for a hosted model behind an env flag" — is
-   explicitly optional/future per the user (they said "eventually" want this, not now). Already
-   low-friction since `ollama_client.py` is the single choke point every feature routes through;
-   no action needed until the user asks.
-
-## Running things (fresh terminal)
-
-```
-# Backend (from repo root)
-cd backend && ./.venv/Scripts/python.exe -m uvicorn app.main:app --port 8000 --reload
-# Frontend (separate terminal, from repo root)
-cd frontend && npm run dev
-```
-
-Ollama: `ollama serve`, model `llama3:8b` (default in `backend/.env`, already pulled on this
-machine — also have `llama3.2:3b` and `qwen2.5-coder:7b` available if needed).
-
-For live browser verification, there's a `.claude/launch.json` (gitignored, local tool config) set
-up for the Claude Preview tool — `preview_start` with name `"frontend"` reuses/starts the Next.js
-dev server on port 3000 and gives you `preview_screenshot`/`preview_eval`/`preview_click` etc.
-Note: `preview_screenshot` intermittently fails with `UnknownVizError` on the first call after a
-navigation — just retry once, it works on the second attempt basically every time.
-
-Neither backend nor frontend dev servers are guaranteed to still be running as of this handoff —
-check `netstat -ano | grep LISTENING` for stray processes on 8000/3000 before assuming, this
-machine has other local projects that can also bind ports.
-
-## Working-style notes (things the user has told me directly)
-
-- Push to git after every update / every phase transition — don't batch.
-- Build one phase at a time, don't jump ahead to a later phase's logic while working on an
-  earlier one (this is also written into CLAUDE.md).
-- Wants real verification (curl/HTTP tests and, for frontend changes, an actual browser check),
-  not just "should work" / a clean build.
-- MIDI Analyzer must stay Python-only for its deterministic stats (already true, confirmed
-  explicitly this session) — Ollama is bonus-only there, same pattern now extended to Coach.
-- For AI-backed features (Lyric Lab, Coach), Ollama is fine for now; user wants to eventually swap
-  to a faster hosted API for other users once things are proven out — no action needed until asked,
-  but keep new LLM calls routed through `ollama_client.py` so that swap stays contained later.
+Nothing is currently blocking or in progress — Phase 4 (Polish) is complete and pushed
+(`fed9b93` is the tip of `main`). The next open item is the last (optional/future, per the user)
+bullet in `PLAN.md`'s Phase 4 section: **swap Ollama for a hosted model behind an env flag**, once
+local-first is proven out. Not scheduled — no action needed until explicitly requested. Otherwise,
+check with the user for what's next (a new feature/phase isn't yet defined in `PLAN.md` beyond
+Phase 4).
