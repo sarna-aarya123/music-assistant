@@ -41,6 +41,17 @@ export async function analyzeMidi(file: File): Promise<MidiAnalysisResponse> {
   return handle<MidiAnalysisResponse>(res);
 }
 
+export type MidiHistoryEntry = MidiAnalysisResponse & {
+  id: number;
+  created_at: string;
+  filename: string;
+};
+
+export async function getMidiHistory(): Promise<MidiHistoryEntry[]> {
+  const res = await fetch(`${API_BASE_URL}/api/midi/history`);
+  return handle<MidiHistoryEntry[]>(res);
+}
+
 // ---------------------------------------------------------------------------
 // Lyric Lab
 // ---------------------------------------------------------------------------
@@ -82,6 +93,21 @@ export async function generateLyrics(
     }),
   });
   return handle<{ candidates: string[] }>(res);
+}
+
+export type LyricsHistoryEntry = {
+  id: number;
+  created_at: string;
+  mode: "analyze" | "generate";
+  lyrics: string;
+  style_reference: string | null;
+  theme_or_prompt: string | null;
+  result: LyricsAnalyzeResponse | { candidates: string[] };
+};
+
+export async function getLyricsHistory(): Promise<LyricsHistoryEntry[]> {
+  const res = await fetch(`${API_BASE_URL}/api/lyrics/history`);
+  return handle<LyricsHistoryEntry[]>(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -131,4 +157,23 @@ export async function sendChatMessage(
     body: JSON.stringify({ track_id: trackId, messages }),
   });
   return handle<{ reply: string }>(res);
+}
+
+export type CoachHistoryEntry = {
+  track_id: string;
+  created_at: string;
+  filename: string;
+  duration_sec: number;
+  feedback: CoachFeedbackResponse | null;
+};
+
+export async function getCoachHistory(): Promise<CoachHistoryEntry[]> {
+  const res = await fetch(`${API_BASE_URL}/api/coach/history`);
+  return handle<CoachHistoryEntry[]>(res);
+}
+
+export async function getCoachChatHistory(trackId: string): Promise<ChatMessage[]> {
+  const res = await fetch(`${API_BASE_URL}/api/coach/history/${trackId}/chat`);
+  const entries = await handle<{ role: "user" | "assistant"; content: string }[]>(res);
+  return entries.map(({ role, content }) => ({ role, content }));
 }

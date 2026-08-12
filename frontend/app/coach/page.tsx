@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ApiError,
+  getCoachChatHistory,
+  getCoachHistory,
   getFeedback,
   sendChatMessage,
   uploadTrack,
   type ChatMessage,
   type CoachFeedbackResponse,
+  type CoachHistoryEntry,
 } from "@/lib/api";
 
 export default function CoachPage() {
@@ -17,7 +20,14 @@ export default function CoachPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<"upload" | "feedback" | "chat" | null>(null);
+  const [loading, setLoading] = useState<"upload" | "feedback" | "chat" | "history" | null>(null);
+  const [history, setHistory] = useState<CoachHistoryEntry[]>([]);
+
+  useEffect(() => {
+    getCoachHistory()
+      .then(setHistory)
+      .catch(() => {});
+  }, []);
 
   function friendlyError(err: unknown) {
     if (!(err instanceof ApiError)) return "Something went wrong.";
@@ -36,6 +46,23 @@ export default function CoachPage() {
       setTrackId(uploaded.track_id);
       setLoading("feedback");
       setFeedback(await getFeedback(uploaded.track_id));
+      getCoachHistory()
+        .then(setHistory)
+        .catch(() => {});
+    } catch (err) {
+      setError(friendlyError(err));
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function loadHistoryEntry(entry: CoachHistoryEntry) {
+    setError(null);
+    setTrackId(entry.track_id);
+    setFeedback(entry.feedback);
+    setLoading("history");
+    try {
+      setMessages(await getCoachChatHistory(entry.track_id));
     } catch (err) {
       setError(friendlyError(err));
     } finally {
@@ -167,6 +194,28 @@ export default function CoachPage() {
               Send
             </button>
           </div>
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="mt-10">
+          <h2 className="mb-3 font-display text-lg uppercase tracking-wide text-muted">Recent</h2>
+          <ul className="space-y-2">
+            {history.map((entry) => (
+              <li key={entry.track_id}>
+                <button
+                  onClick={() => loadHistoryEntry(entry)}
+                  disabled={loading !== null}
+                  className="w-full rounded-lg border border-border bg-surface p-3 text-left text-sm transition hover:border-accent disabled:opacity-40"
+                >
+                  <span className="font-medium">{entry.filename}</span>{" "}
+                  <span className="text-muted">
+                    — {entry.duration_sec}s · {new Date(entry.created_at).toLocaleString()}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

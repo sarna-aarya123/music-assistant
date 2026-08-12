@@ -1,13 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { analyzeMidi, ApiError, type MidiAnalysisResponse } from "@/lib/api";
+import { useEffect, useState } from "react";
+import {
+  analyzeMidi,
+  ApiError,
+  getMidiHistory,
+  type MidiAnalysisResponse,
+  type MidiHistoryEntry,
+} from "@/lib/api";
 
 export default function MidiAnalyzerPage() {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<MidiAnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<MidiHistoryEntry[]>([]);
+
+  useEffect(() => {
+    getMidiHistory()
+      .then(setHistory)
+      .catch(() => {});
+  }, []);
 
   async function handleAnalyze() {
     if (!file) return;
@@ -17,11 +30,11 @@ export default function MidiAnalyzerPage() {
     try {
       const data = await analyzeMidi(file);
       setResult(data);
+      getMidiHistory()
+        .then(setHistory)
+        .catch(() => {});
     } catch (err) {
-      const message =
-        err instanceof ApiError
-          ? `${err.message}${err.status === 501 ? " (Phase 1 — not built yet, see PLAN.md)" : ""}`
-          : "Something went wrong.";
+      const message = err instanceof ApiError ? err.message : "Something went wrong.";
       setError(message);
     } finally {
       setLoading(false);
@@ -100,6 +113,27 @@ export default function MidiAnalyzerPage() {
               re-run the analysis.
             </div>
           )}
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="mt-10">
+          <h2 className="mb-3 font-display text-lg uppercase tracking-wide text-muted">Recent</h2>
+          <ul className="space-y-2">
+            {history.map((entry) => (
+              <li key={entry.id}>
+                <button
+                  onClick={() => setResult(entry)}
+                  className="w-full rounded-lg border border-border bg-surface p-3 text-left text-sm transition hover:border-accent"
+                >
+                  <span className="font-medium">{entry.filename}</span>{" "}
+                  <span className="text-muted">
+                    — {entry.key}, {entry.bpm} BPM · {new Date(entry.created_at).toLocaleString()}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

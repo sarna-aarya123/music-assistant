@@ -17,3 +17,6 @@ setuptools<81  # pretty_midi imports pkg_resources at runtime; removed from setu
 librosa>=0.10.2
 soundfile>=0.12.1
 numpy>=1.26
+
+# Phase 4 (Polish) — history persistence
+aiosqlite==0.22.1

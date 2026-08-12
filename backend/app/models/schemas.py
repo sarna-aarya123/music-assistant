@@ -30,6 +30,12 @@ class MidiAnalysisResponse(BaseModel):
     suggestions: list[str]
 
 
+class MidiHistoryEntry(MidiAnalysisResponse):
+    id: int
+    created_at: str
+    filename: str
+
+
 # ---------------------------------------------------------------------------
 # Lyric Lab (Phase 2)
 # ---------------------------------------------------------------------------
@@ -62,6 +68,16 @@ class LyricsGenerateRequest(BaseModel):
 
 class LyricsGenerateResponse(BaseModel):
     candidates: list[str]
+
+
+class LyricsHistoryEntry(BaseModel):
+    id: int
+    created_at: str
+    mode: str  # "analyze" | "generate"
+    lyrics: str
+    style_reference: str | None = None
+    theme_or_prompt: str | None = None
+    result: dict  # LyricsAnalyzeResponse or LyricsGenerateResponse shape, depending on `mode`
 
 
 # ---------------------------------------------------------------------------
@@ -110,3 +126,17 @@ class CoachChatRequest(BaseModel):
 
 class CoachChatResponse(BaseModel):
     reply: str
+
+
+class CoachHistoryEntry(BaseModel):
+    track_id: str
+    created_at: str
+    filename: str
+    duration_sec: float
+    feedback: CoachFeedbackResponse | None = None
+
+
+class CoachChatHistoryEntry(BaseModel):
+    role: str
+    content: str
+    created_at: str

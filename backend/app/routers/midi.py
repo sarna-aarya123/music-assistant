@@ -4,8 +4,8 @@ import uuid
 from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.core.config import settings
-from app.models.schemas import MidiAnalysisResponse
-from app.services import midi_analysis
+from app.models.schemas import MidiAnalysisResponse, MidiHistoryEntry
+from app.services import history, midi_analysis
 
 router = APIRouter(prefix="/api/midi", tags=["midi"])
 
@@ -20,6 +20,15 @@ async def analyze(file: UploadFile):
         shutil.copyfileobj(file.file, f)
 
     try:
-        return await midi_analysis.analyze_midi(dest)
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+        result = await midi_analysis.analyze_midi(dest)
+    except Exception as exc:  # pretty_midi raises several distinct error types on malformed files
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Could not parse MIDI file: {exc}") from exc
+
+    await history.save_midi_analysis(file.filename, result)
+    return result
+
+
+@router.get("/history", response_model=list[MidiHistoryEntry])
+async def get_history(limit: int = 20):
+    return await history.list_midi_history(limit)

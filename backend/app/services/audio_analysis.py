@@ -17,7 +17,7 @@ import librosa
 import numpy as np
 
 from app.models.schemas import ChatMessage, CoachFeedbackResponse, TrackFeatures
-from app.services import ollama_client
+from app.services import history, ollama_client
 
 # Krumhansl-Kessler key profiles — same approach as the MIDI Analyzer, applied to a chroma
 # spectrogram instead of a MIDI pitch-class histogram.
@@ -184,7 +184,12 @@ async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResp
 async def continue_chat(track_id: str, messages: list[ChatMessage]) -> str:
     context = _track_context.get(track_id)
     if context is None:
-        raise KeyError(track_id)
+        # Not in this process's memory — e.g. the server restarted since feedback was generated.
+        # Reconstruct from SQLite before giving up.
+        context = await history.get_coach_context(track_id)
+        if context is None:
+            raise KeyError(track_id)
+        _track_context[track_id] = context
 
     system = _CHAT_SYSTEM_PROMPT_TEMPLATE.format(context=context)
     chat_messages = [{"role": "system", "content": system}]

@@ -5,13 +5,16 @@ from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.core.config import settings
 from app.models.schemas import (
+    ChatMessage,
+    CoachChatHistoryEntry,
     CoachChatRequest,
     CoachChatResponse,
     CoachFeedbackRequest,
     CoachFeedbackResponse,
+    CoachHistoryEntry,
     CoachUploadResponse,
 )
-from app.services import audio_analysis, ollama_client
+from app.services import audio_analysis, history, ollama_client
 from app.services.audio_analysis import AudioLoadError
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
@@ -46,6 +49,7 @@ async def upload(file: UploadFile):
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    await history.save_coach_track(track_id, file.filename, features["duration_sec"])
     return CoachUploadResponse(
         track_id=track_id, filename=file.filename, duration_sec=features["duration_sec"]
     )
@@ -58,19 +62,37 @@ async def feedback(body: CoachFeedbackRequest):
         raise HTTPException(status_code=404, detail="Unknown track_id — upload the track first.")
 
     try:
-        return await audio_analysis.generate_feedback(body.track_id, matches[0])
+        result = await audio_analysis.generate_feedback(body.track_id, matches[0])
     except AudioLoadError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await history.save_coach_feedback(body.track_id, result)
+    return result
 
 
 @router.post("/chat", response_model=CoachChatResponse)
 async def chat(body: CoachChatRequest):
     try:
         reply = await audio_analysis.continue_chat(body.track_id, body.messages)
-        return CoachChatResponse(reply=reply)
     except KeyError as exc:
         raise HTTPException(
             status_code=404, detail="No analysis found for this track_id — get feedback first."
         ) from exc
     except ollama_client.OllamaError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # The frontend sends the full conversation each turn; only the newest user message plus this
+    # reply are new since the last call.
+    new_messages = body.messages[-1:] + [ChatMessage(role="assistant", content=reply)]
+    await history.append_coach_chat_messages(body.track_id, new_messages)
+    return CoachChatResponse(reply=reply)
+
+
+@router.get("/history", response_model=list[CoachHistoryEntry])
+async def get_history(limit: int = 20):
+    return await history.list_coach_history(limit)
+
+
+@router.get("/history/{track_id}/chat", response_model=list[CoachChatHistoryEntry])
+async def get_chat_history(track_id: str):
+    return await history.get_coach_chat_history(track_id)
