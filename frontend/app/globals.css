@@ -3,35 +3,55 @@
 @tailwind utilities;
 
 body {
-  background-color: #0a0a0a;
-  color: #f2f2f2;
+  color: #241b4d;
+  background-color: #f5f1ff;
+  background-image: linear-gradient(
+    120deg,
+    #ffe1f2 0%,
+    #e3ecff 30%,
+    #e3fff5 60%,
+    #fff3e0 85%,
+    #ffe1f2 100%
+  );
+  background-size: 300% 300%;
+  animation: gradient-drift 18s ease infinite;
 }
 
-/* Fixed grain + scanline texture behind everything — subtle, matches the reference artists'
-   distorted/lo-fi visual language without hurting text contrast. */
+/* Soft twinkling sparkles drifting behind everything — replaces the old grain/noise texture. */
 .app-texture {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.05;
-  mix-blend-mode: overlay;
+  opacity: 0.9;
   background-image:
-    repeating-linear-gradient(0deg, #fff 0px, transparent 1px, transparent 2px),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    radial-gradient(circle, rgba(255, 255, 255, 0.9) 1.5px, transparent 1.6px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.7) 1px, transparent 1.1px);
+  background-size: 140px 140px, 90px 90px;
+  background-position: 0 0, 45px 60px;
+  animation: sparkle-drift 40s linear infinite;
 }
 
-/* Faint fixed HUD grid, behind the noise texture — reinforces the "on-screen readout" feel. */
+@keyframes sparkle-drift {
+  0% {
+    background-position: 0 0, 45px 60px;
+  }
+  100% {
+    background-position: 400px 300px, 300px 500px;
+  }
+}
+
+/* Faint prismatic grid, very soft — a light echo of a JRPG menu backdrop, not a HUD readout. */
 .hud-grid {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.06;
+  opacity: 0.05;
   background-image:
-    linear-gradient(90deg, #22e0ff 1px, transparent 1px),
-    linear-gradient(0deg, #22e0ff 1px, transparent 1px);
-  background-size: 40px 40px;
+    linear-gradient(90deg, #8b5cf6 1px, transparent 1px),
+    linear-gradient(0deg, #33c7ff 1px, transparent 1px);
+  background-size: 64px 64px;
 }
 
 body > * {
@@ -48,45 +68,65 @@ body > * {
   font-family: var(--font-mono), monospace;
 }
 
-/* HUD panel: angular corner-bracket frame layered on top of a normal bordered box, via
-   ::before/::after so it composes with any existing bg/border/padding classes on the element. */
+/* Crystal glass panel: the one shared "card" look used across every feature page. Glassy,
+   rounded, soft gradient sheen, gentle pop-in on mount, lifts on hover for a tactile game feel. */
 .hud-panel {
   position: relative;
+  border-radius: 22px !important;
+  overflow: hidden;
+  background-image: linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.55));
+  backdrop-filter: blur(14px);
+  box-shadow:
+    0 10px 30px -10px rgba(120, 90, 220, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
+  animation: pop-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.hud-panel::before,
+.hud-panel:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 16px 38px -10px rgba(120, 90, 220, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+/* Glossy highlight streak across the top-left of every panel, like light hitting glass/crystal. */
+.hud-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background-image: linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(255, 255, 255, 0.15) 18%,
+    transparent 32%
+  );
+}
+
+/* Thin iridescent border to sell the "crystal facet" edge. */
 .hud-panel::after {
   content: "";
   position: absolute;
-  width: 10px;
-  height: 10px;
-  pointer-events: none;
+  inset: 0;
   z-index: 2;
-  border-color: #22e0ff;
-  opacity: 0.8;
+  pointer-events: none;
+  border-radius: inherit;
+  border: 1.5px solid transparent;
+  background: linear-gradient(135deg, #ff5cad, #33c7ff, #ffcf40, #ff5cad) border-box;
+  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.5;
 }
 
-.hud-panel::before {
-  top: -1px;
-  left: -1px;
-  border-top: 2px solid;
-  border-left: 2px solid;
-}
-
-.hud-panel::after {
-  bottom: -1px;
-  right: -1px;
-  border-bottom: 2px solid;
-  border-right: 2px solid;
-}
-
-/* Animated gradient band sweeping across a panel on hover — triggered via Tailwind's
-   `hover:animate-scan-sweep` utility (see tailwind.config.ts) on elements using this background. */
+/* Diagonal gloss sweep on hover — triggered via Tailwind's `hover:animate-scan-sweep` utility. */
 .hud-scan-surface {
   background-image: linear-gradient(
     100deg,
     transparent 40%,
-    rgba(34, 224, 255, 0.14) 50%,
+    rgba(255, 255, 255, 0.65) 50%,
     transparent 60%
   );
   background-size: 250% 100%;
@@ -100,30 +140,94 @@ body > * {
   border-radius: 9999px;
 }
 
-@keyframes glitch-flicker {
-  0%,
+/* Rounded, glassy inputs/panels/buttons wherever the raw color utilities are used directly
+   (without .hud-panel) — form fields, badges, buttons all pick this up for free. */
+.border-border {
+  border-radius: 16px;
+  border-color: rgba(217, 201, 255, 0.8) !important;
+}
+
+.bg-surface {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(10px);
+}
+
+.bg-accent,
+.border-accent {
+  border-radius: 9999px !important;
+}
+
+.bg-accent {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0) 55%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.bg-accent,
+.border-accent {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.bg-accent:hover,
+.border-accent:hover {
+  transform: translateY(-2px) scale(1.03);
+}
+
+.bg-accent:active,
+.border-accent:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Shimmering holographic title text, swapped in for the old glitch-flicker effect. */
+@keyframes shimmer-text {
+  0% {
+    background-position: 0% 50%;
+  }
   100% {
-    text-shadow: 2px 0 #22e0ff, -2px 0 #ff2d55;
-    transform: translate(0, 0);
-  }
-  20% {
-    text-shadow: -2px 0 #22e0ff, 2px 0 #ff2d55;
-    transform: translate(-1px, 1px);
-  }
-  40% {
-    text-shadow: 2px 0 #22e0ff, -2px 0 #ff2d55;
-    transform: translate(1px, -1px);
-  }
-  60% {
-    text-shadow: -1px 0 #22e0ff, 1px 0 #ff2d55;
-    transform: translate(0, 0);
-  }
-  80% {
-    text-shadow: 1px 0 #22e0ff, -1px 0 #ff2d55;
-    transform: translate(1px, 1px);
+    background-position: 200% 50%;
   }
 }
 
+.glitch-text {
+  background-image: linear-gradient(
+    100deg,
+    #241b4d 30%,
+    #ff5cad 42%,
+    #ffcf40 50%,
+    #33c7ff 58%,
+    #241b4d 70%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 .glitch-text:hover {
-  animation: glitch-flicker 0.35s infinite;
+  animation: shimmer-text 1.6s linear infinite;
+}
+
+/* Floating crystal shard / sparkle decoration, used by the CrystalField background component. */
+.crystal-shard {
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 16px rgba(120, 90, 220, 0.25));
+}
+
+.mascot-float {
+  animation: bob 3.2s ease-in-out infinite;
+}
+
+.mascot-blink {
+  transform-origin: center;
+  animation: blink 4.5s ease-in-out infinite;
+}
+
+.mascot-tail {
+  transform-origin: bottom center;
+  animation: tail-sway 2.4s ease-in-out infinite;
+}
+
+.mascot-sparkle {
+  animation: twinkle 2.2s ease-in-out infinite;
 }

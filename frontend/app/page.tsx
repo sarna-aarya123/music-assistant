@@ -1,4 +1,5 @@
 import FeatureCard from "@/components/FeatureCard";
+import Mascot from "@/components/Mascot";
 
 function WaveformIcon() {
   return (
@@ -32,15 +33,22 @@ function TerminalIcon() {
 export default function HomePage() {
   return (
     <div>
-      <div className="mb-2 font-mono text-xs uppercase tracking-[0.3em] text-accent2">
-        [ system online — local-first ]
+      <div className="hud-panel mb-10 flex flex-col items-center gap-6 p-8 text-center sm:flex-row sm:text-left">
+        <Mascot size={140} className="shrink-0" />
+        <div>
+          <div className="mb-2 font-mono text-xs uppercase tracking-[0.3em] text-accent2">
+            ✦ system online — local-first ✦
+          </div>
+          <h1 className="glitch-text mb-2 font-display text-4xl uppercase tracking-wide">
+            AI Music Assistant
+          </h1>
+          <p className="max-w-2xl text-muted">
+            Feedback and analysis for producers working in the rage / plugg lane — upload a beat, a
+            MIDI file, or your lyrics and get notes back in seconds. Deterministic analysis runs
+            entirely on your machine in Python; Ollama AI feedback is optional, opt-in, on top.
+          </p>
+        </div>
       </div>
-      <h1 className="glitch-text mb-2 font-display text-4xl uppercase tracking-wide">AI Music Assistant</h1>
-      <p className="mb-10 max-w-2xl text-muted">
-        Feedback and analysis for producers working in the rage / plugg lane — upload a beat, a
-        MIDI file, or your lyrics and get notes back in seconds. Deterministic analysis runs
-        entirely on your machine in Python; Ollama AI feedback is optional, opt-in, on top.
-      </p>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <FeatureCard
