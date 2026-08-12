@@ -22,6 +22,10 @@ export default function MidiAnalyzerPage() {
       .catch(() => {});
   }, []);
 
+  function friendlyError(err: unknown) {
+    return err instanceof ApiError ? err.message : "Something went wrong.";
+  }
+
   async function handleAnalyze() {
     if (!file) return;
     setLoading(true);
@@ -34,8 +38,7 @@ export default function MidiAnalyzerPage() {
         .then(setHistory)
         .catch(() => {});
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Something went wrong.";
-      setError(message);
+      setError(friendlyError(err));
     } finally {
       setLoading(false);
     }

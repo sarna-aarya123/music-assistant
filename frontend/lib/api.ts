@@ -8,6 +8,16 @@ export class ApiError extends Error {
   }
 }
 
+// status 0 signals a network-level failure (backend unreachable), as opposed to an HTTP error
+// response — callers can use this to show a more actionable message than a generic 500.
+async function safeFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new ApiError(0, `Can't reach the backend at ${API_BASE_URL} — is it running?`);
+  }
+}
+
 async function handle<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
@@ -15,6 +25,9 @@ async function handle<T>(response: Response): Promise<T> {
   }
   return response.json() as Promise<T>;
 }
+
+const MIDI_MAX_UPLOAD_MB = 10;
+const COACH_MAX_UPLOAD_MB = 50;
 
 // ---------------------------------------------------------------------------
 // MIDI Analyzer
@@ -35,9 +48,12 @@ export type MidiAnalysisResponse = {
 };
 
 export async function analyzeMidi(file: File): Promise<MidiAnalysisResponse> {
+  if (file.size > MIDI_MAX_UPLOAD_MB * 1024 * 1024) {
+    throw new ApiError(413, `File exceeds the ${MIDI_MAX_UPLOAD_MB}MB upload limit.`);
+  }
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE_URL}/api/midi/analyze`, { method: "POST", body: form });
+  const res = await safeFetch(`${API_BASE_URL}/api/midi/analyze`, { method: "POST", body: form });
   return handle<MidiAnalysisResponse>(res);
 }
 
@@ -48,7 +64,7 @@ export type MidiHistoryEntry = MidiAnalysisResponse & {
 };
 
 export async function getMidiHistory(): Promise<MidiHistoryEntry[]> {
-  const res = await fetch(`${API_BASE_URL}/api/midi/history`);
+  const res = await safeFetch(`${API_BASE_URL}/api/midi/history`);
   return handle<MidiHistoryEntry[]>(res);
 }
 
@@ -68,7 +84,7 @@ export async function analyzeLyrics(
   lyrics: string,
   styleReference?: string
 ): Promise<LyricsAnalyzeResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/lyrics/analyze`, {
+  const res = await safeFetch(`${API_BASE_URL}/api/lyrics/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ lyrics, style_reference: styleReference }),
@@ -82,7 +98,7 @@ export async function generateLyrics(
   styleReference?: string,
   count = 4
 ): Promise<{ candidates: string[] }> {
-  const res = await fetch(`${API_BASE_URL}/api/lyrics/generate`, {
+  const res = await safeFetch(`${API_BASE_URL}/api/lyrics/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -106,7 +122,7 @@ export type LyricsHistoryEntry = {
 };
 
 export async function getLyricsHistory(): Promise<LyricsHistoryEntry[]> {
-  const res = await fetch(`${API_BASE_URL}/api/lyrics/history`);
+  const res = await safeFetch(`${API_BASE_URL}/api/lyrics/history`);
   return handle<LyricsHistoryEntry[]>(res);
 }
 
@@ -132,14 +148,17 @@ export type CoachFeedbackResponse = {
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
 export async function uploadTrack(file: File): Promise<CoachUploadResponse> {
+  if (file.size > COACH_MAX_UPLOAD_MB * 1024 * 1024) {
+    throw new ApiError(413, `File exceeds the ${COACH_MAX_UPLOAD_MB}MB upload limit.`);
+  }
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE_URL}/api/coach/upload`, { method: "POST", body: form });
+  const res = await safeFetch(`${API_BASE_URL}/api/coach/upload`, { method: "POST", body: form });
   return handle<CoachUploadResponse>(res);
 }
 
 export async function getFeedback(trackId: string): Promise<CoachFeedbackResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/coach/feedback`, {
+  const res = await safeFetch(`${API_BASE_URL}/api/coach/feedback`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ track_id: trackId }),
@@ -151,7 +170,7 @@ export async function sendChatMessage(
   trackId: string,
   messages: ChatMessage[]
 ): Promise<{ reply: string }> {
-  const res = await fetch(`${API_BASE_URL}/api/coach/chat`, {
+  const res = await safeFetch(`${API_BASE_URL}/api/coach/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ track_id: trackId, messages }),
@@ -168,12 +187,12 @@ export type CoachHistoryEntry = {
 };
 
 export async function getCoachHistory(): Promise<CoachHistoryEntry[]> {
-  const res = await fetch(`${API_BASE_URL}/api/coach/history`);
+  const res = await safeFetch(`${API_BASE_URL}/api/coach/history`);
   return handle<CoachHistoryEntry[]>(res);
 }
 
 export async function getCoachChatHistory(trackId: string): Promise<ChatMessage[]> {
-  const res = await fetch(`${API_BASE_URL}/api/coach/history/${trackId}/chat`);
+  const res = await safeFetch(`${API_BASE_URL}/api/coach/history/${trackId}/chat`);
   const entries = await handle<{ role: "user" | "assistant"; content: string }[]>(res);
   return entries.map(({ role, content }) => ({ role, content }));
 }
