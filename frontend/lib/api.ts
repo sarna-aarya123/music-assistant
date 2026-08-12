@@ -30,16 +30,6 @@ const MIDI_MAX_UPLOAD_MB = 10;
 const COACH_MAX_UPLOAD_MB = 50;
 
 // ---------------------------------------------------------------------------
-// System
-// ---------------------------------------------------------------------------
-
-export async function getOllamaInstalled(): Promise<boolean> {
-  const res = await safeFetch(`${API_BASE_URL}/api/system/ollama-installed`);
-  const { installed } = await handle<{ installed: boolean }>(res);
-  return installed;
-}
-
-// ---------------------------------------------------------------------------
 // MIDI Analyzer
 // ---------------------------------------------------------------------------
 
@@ -51,19 +41,22 @@ export type MidiAnalysisResponse = {
   pitch_range: [string, string];
   avg_velocity: number;
   track_count: number;
-  ai_available: boolean;
+  unique_pitch_classes: number;
+  velocity_range: [number, number];
+  avg_note_length_sec: number;
+  polyphony: number;
+  syncopation: number;
   feel_summary: string;
   notes: string;
   suggestions: string[];
 };
 
-export async function analyzeMidi(file: File, useAi: boolean): Promise<MidiAnalysisResponse> {
+export async function analyzeMidi(file: File): Promise<MidiAnalysisResponse> {
   if (file.size > MIDI_MAX_UPLOAD_MB * 1024 * 1024) {
     throw new ApiError(413, `File exceeds the ${MIDI_MAX_UPLOAD_MB}MB upload limit.`);
   }
   const form = new FormData();
   form.append("file", file);
-  form.append("use_ai", String(useAi));
   const res = await safeFetch(`${API_BASE_URL}/api/midi/analyze`, { method: "POST", body: form });
   return handle<MidiAnalysisResponse>(res);
 }
@@ -91,35 +84,13 @@ export type LyricsAnalyzeResponse = {
   line_by_line: { line: string; note: string }[];
 };
 
-export async function analyzeLyrics(
-  lyrics: string,
-  styleReference?: string
-): Promise<LyricsAnalyzeResponse> {
+export async function analyzeLyrics(lyrics: string): Promise<LyricsAnalyzeResponse> {
   const res = await safeFetch(`${API_BASE_URL}/api/lyrics/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ lyrics, style_reference: styleReference }),
+    body: JSON.stringify({ lyrics }),
   });
   return handle<LyricsAnalyzeResponse>(res);
-}
-
-export async function generateLyrics(
-  lyrics: string,
-  themeOrPrompt: string,
-  styleReference?: string,
-  count = 4
-): Promise<{ candidates: string[] }> {
-  const res = await safeFetch(`${API_BASE_URL}/api/lyrics/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      lyrics,
-      theme_or_prompt: themeOrPrompt,
-      style_reference: styleReference,
-      count,
-    }),
-  });
-  return handle<{ candidates: string[] }>(res);
 }
 
 export type LyricsHistoryEntry = {
@@ -147,16 +118,24 @@ export type CoachUploadResponse = {
   duration_sec: number;
 };
 
-export type CoachFeedbackResponse = {
-  track_id: string;
-  features: { bpm: number; key: string; rms_db: number; brightness_hz: number };
-  ai_available: boolean;
-  strengths: string[];
-  improvements: string[];
-  follow_up_questions: string[];
+export type TrackFeatures = {
+  bpm: number;
+  key: string;
+  rms_db: number;
+  brightness_hz: number;
+  rolloff_hz: number;
+  zero_crossing_rate: number;
+  dynamic_range_db: number;
+  low_end_ratio: number;
+  onset_density: number;
 };
 
-export type ChatMessage = { role: "user" | "assistant"; content: string };
+export type CoachFeedbackResponse = {
+  track_id: string;
+  features: TrackFeatures;
+  strengths: string[];
+  improvements: string[];
+};
 
 export async function uploadTrack(file: File): Promise<CoachUploadResponse> {
   if (file.size > COACH_MAX_UPLOAD_MB * 1024 * 1024) {
@@ -168,25 +147,13 @@ export async function uploadTrack(file: File): Promise<CoachUploadResponse> {
   return handle<CoachUploadResponse>(res);
 }
 
-export async function getFeedback(trackId: string, useAi: boolean): Promise<CoachFeedbackResponse> {
+export async function getFeedback(trackId: string): Promise<CoachFeedbackResponse> {
   const res = await safeFetch(`${API_BASE_URL}/api/coach/feedback`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ track_id: trackId, use_ai: useAi }),
+    body: JSON.stringify({ track_id: trackId }),
   });
   return handle<CoachFeedbackResponse>(res);
-}
-
-export async function sendChatMessage(
-  trackId: string,
-  messages: ChatMessage[]
-): Promise<{ reply: string }> {
-  const res = await safeFetch(`${API_BASE_URL}/api/coach/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ track_id: trackId, messages }),
-  });
-  return handle<{ reply: string }>(res);
 }
 
 export type CoachHistoryEntry = {
@@ -200,10 +167,4 @@ export type CoachHistoryEntry = {
 export async function getCoachHistory(): Promise<CoachHistoryEntry[]> {
   const res = await safeFetch(`${API_BASE_URL}/api/coach/history`);
   return handle<CoachHistoryEntry[]>(res);
-}
-
-export async function getCoachChatHistory(trackId: string): Promise<ChatMessage[]> {
-  const res = await safeFetch(`${API_BASE_URL}/api/coach/history/${trackId}/chat`);
-  const entries = await handle<{ role: "user" | "assistant"; content: string }[]>(res);
-  return entries.map(({ role, content }) => ({ role, content }));
 }

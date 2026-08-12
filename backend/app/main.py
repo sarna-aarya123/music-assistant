@@ -5,7 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.db import init_db
-from app.routers import coach, lyrics, midi, system
+from app.routers import coach, lyrics, midi
+
+# app.routers.system (Ollama install-check endpoint) is intentionally not registered — nothing in
+# the UI needs it right now that Ollama isn't wired up to any route. The file is left in place.
 
 
 @asynccontextmanager
@@ -32,7 +35,6 @@ app.add_middleware(
 app.include_router(midi.router)
 app.include_router(lyrics.router)
 app.include_router(coach.router)
-app.include_router(system.router)
 
 
 @app.get("/health")

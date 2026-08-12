@@ -4,23 +4,17 @@ import { useEffect, useState } from "react";
 import {
   analyzeLyrics,
   ApiError,
-  generateLyrics,
   getLyricsHistory,
   type LyricsAnalyzeResponse,
   type LyricsHistoryEntry,
 } from "@/lib/api";
-import UseAiToggle from "@/components/UseAiToggle";
 
 export default function LyricsPage() {
   const [lyrics, setLyrics] = useState("");
-  const [styleReference, setStyleReference] = useState("");
-  const [themePrompt, setThemePrompt] = useState("");
-  const [useAi, setUseAi] = useState(false);
 
   const [analysis, setAnalysis] = useState<LyricsAnalyzeResponse | null>(null);
-  const [candidates, setCandidates] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<"analyze" | "generate" | null>(null);
+  const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<LyricsHistoryEntry[]>([]);
 
   useEffect(() => {
@@ -30,65 +24,37 @@ export default function LyricsPage() {
   }, []);
 
   function friendlyError(err: unknown) {
-    if (!(err instanceof ApiError)) return "Something went wrong.";
-    if (err.status === 503) return `${err.message} (Ollama isn't reachable — run \`ollama serve\`.)`;
-    return err.message;
-  }
-
-  function refreshHistory() {
-    getLyricsHistory()
-      .then(setHistory)
-      .catch(() => {});
+    return err instanceof ApiError ? err.message : "Something went wrong.";
   }
 
   async function handleAnalyze() {
-    if (!lyrics.trim() || !useAi) return;
-    setLoading("analyze");
+    if (!lyrics.trim()) return;
+    setLoading(true);
     setError(null);
     setAnalysis(null);
     try {
-      setAnalysis(await analyzeLyrics(lyrics, styleReference || undefined));
-      refreshHistory();
+      setAnalysis(await analyzeLyrics(lyrics));
+      getLyricsHistory()
+        .then(setHistory)
+        .catch(() => {});
     } catch (err) {
       setError(friendlyError(err));
     } finally {
-      setLoading(null);
-    }
-  }
-
-  async function handleGenerate() {
-    if (!lyrics.trim() || !themePrompt.trim() || !useAi) return;
-    setLoading("generate");
-    setError(null);
-    setCandidates(null);
-    try {
-      const data = await generateLyrics(lyrics, themePrompt, styleReference || undefined);
-      setCandidates(data.candidates);
-      refreshHistory();
-    } catch (err) {
-      setError(friendlyError(err));
-    } finally {
-      setLoading(null);
+      setLoading(false);
     }
   }
 
   function loadHistoryEntry(entry: LyricsHistoryEntry) {
     setLyrics(entry.lyrics);
-    setStyleReference(entry.style_reference ?? "");
     if (entry.mode === "analyze") {
       setAnalysis(entry.result as LyricsAnalyzeResponse);
-      setCandidates(null);
-    } else {
-      setThemePrompt(entry.theme_or_prompt ?? "");
-      setCandidates((entry.result as { candidates: string[] }).candidates);
-      setAnalysis(null);
     }
   }
 
   return (
     <div>
       <h1 className="glitch-text mb-2 font-display text-3xl uppercase tracking-wide">Lyric Lab</h1>
-      <p className="mb-6 text-muted">Paste your lyrics and get feedback, or generate new lines.</p>
+      <p className="mb-6 text-muted">Paste your lyrics and get feedback.</p>
 
       <textarea
         value={lyrics}
@@ -98,47 +64,15 @@ export default function LyricsPage() {
         className="mb-3 w-full border border-border bg-surface p-3 font-mono text-sm"
       />
 
-      <input
-        value={styleReference}
-        onChange={(e) => setStyleReference(e.target.value)}
-        placeholder="Style reference (optional) — e.g. aggressive, short punchy bars"
-        className="mb-3 w-full border border-border bg-surface p-3 text-sm"
-      />
-
-      <div className="mb-3">
-        <UseAiToggle checked={useAi} onChange={setUseAi} />
-      </div>
-
-      <div className="mb-6 flex flex-wrap items-center gap-3">
+      <div className="mb-6">
         <button
           onClick={handleAnalyze}
-          disabled={!lyrics.trim() || !useAi || loading !== null}
+          disabled={!lyrics.trim() || loading}
           className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
         >
-          {loading === "analyze" ? "Analyzing..." : "Get Feedback"}
-        </button>
-
-        <input
-          value={themePrompt}
-          onChange={(e) => setThemePrompt(e.target.value)}
-          placeholder="What should the new lines be about?"
-          className="flex-1 border border-border bg-surface p-2 text-sm"
-        />
-        <button
-          onClick={handleGenerate}
-          disabled={!lyrics.trim() || !themePrompt.trim() || !useAi || loading !== null}
-          className="border border-accent px-4 py-2 text-sm font-medium uppercase tracking-wide text-accent transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
-        >
-          {loading === "generate" ? "Generating..." : "Generate Lines"}
+          {loading ? "Analyzing..." : "Get Feedback"}
         </button>
       </div>
-
-      {!useAi && (
-        <p className="mb-4 border border-dashed border-border p-3 font-mono text-sm text-muted">
-          Turn on <span className="text-accent2">&quot;Use Ollama AI Coach&quot;</span> above to enable
-          critique and line generation.
-        </p>
-      )}
 
       {error && (
         <p className="mb-4 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{error}</p>
@@ -165,19 +99,6 @@ export default function LyricsPage() {
               </ul>
             </div>
           )}
-        </div>
-      )}
-
-      {candidates && (
-        <div className="hud-panel border border-border bg-surface p-4">
-          <h3 className="mb-2 font-mono text-xs uppercase tracking-widest text-accent2">
-            Candidate lines
-          </h3>
-          <ul className="space-y-1 text-sm text-muted">
-            {candidates.map((line, i) => (
-              <li key={i}>{line}</li>
-            ))}
-          </ul>
         </div>
       )}
 

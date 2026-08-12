@@ -11,8 +11,6 @@ from datetime import datetime, timezone
 
 from app.core.db import connect
 from app.models.schemas import (
-    ChatMessage,
-    CoachChatHistoryEntry,
     CoachFeedbackResponse,
     CoachHistoryEntry,
     LyricsAnalyzeResponse,
@@ -37,7 +35,9 @@ async def save_midi_analysis(filename: str, result: MidiAnalysisResponse) -> Non
         await db.execute(
             "INSERT INTO midi_analyses (created_at, filename, bpm, time_signature, key, "
             "note_density, pitch_low, pitch_high, avg_velocity, track_count, ai_available, "
-            "feel_summary, notes, suggestions_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "feel_summary, notes, suggestions_json, unique_pitch_classes, velocity_low, "
+            "velocity_high, avg_note_length_sec, polyphony, syncopation) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 _now(),
                 filename,
@@ -49,10 +49,16 @@ async def save_midi_analysis(filename: str, result: MidiAnalysisResponse) -> Non
                 result.pitch_range[1],
                 result.avg_velocity,
                 result.track_count,
-                int(result.ai_available),
+                1,  # ai_available — vestigial, see core/db.py
                 result.feel_summary,
                 result.notes,
                 json.dumps(result.suggestions),
+                result.unique_pitch_classes,
+                result.velocity_range[0],
+                result.velocity_range[1],
+                result.avg_note_length_sec,
+                result.polyphony,
+                result.syncopation,
             ),
         )
         await db.commit()
@@ -74,7 +80,11 @@ async def list_midi_history(limit: int = 20) -> list[MidiHistoryEntry]:
             pitch_range=(row["pitch_low"], row["pitch_high"]),
             avg_velocity=row["avg_velocity"],
             track_count=row["track_count"],
-            ai_available=bool(row["ai_available"]),
+            unique_pitch_classes=row["unique_pitch_classes"],
+            velocity_range=(row["velocity_low"], row["velocity_high"]),
+            avg_note_length_sec=row["avg_note_length_sec"],
+            polyphony=row["polyphony"],
+            syncopation=row["syncopation"],
             feel_summary=row["feel_summary"],
             notes=row["notes"],
             suggestions=json.loads(row["suggestions_json"]),
@@ -91,9 +101,9 @@ async def list_midi_history(limit: int = 20) -> list[MidiHistoryEntry]:
 async def save_lyrics_session(
     mode: str,
     lyrics: str,
-    style_reference: str | None,
-    theme_or_prompt: str | None,
     result: LyricsAnalyzeResponse | list[str],
+    style_reference: str | None = None,
+    theme_or_prompt: str | None = None,
 ) -> None:
     result_payload = result.model_dump() if isinstance(result, LyricsAnalyzeResponse) else {"candidates": result}
     async with connect() as db:
@@ -147,20 +157,11 @@ async def save_coach_feedback(track_id: str, result: CoachFeedbackResponse) -> N
                 track_id,
                 _now(),
                 json.dumps(result.features.model_dump()),
-                int(result.ai_available),
+                0,  # ai_available — vestigial, see core/db.py
                 json.dumps(result.strengths),
                 json.dumps(result.improvements),
-                json.dumps(result.follow_up_questions),
+                "[]",  # follow_up_questions — vestigial, chat is disconnected (see audio_analysis.py)
             ),
-        )
-        await db.commit()
-
-
-async def append_coach_chat_messages(track_id: str, messages: list[ChatMessage]) -> None:
-    async with connect() as db:
-        await db.executemany(
-            "INSERT INTO coach_chat_messages (track_id, role, content, created_at) VALUES (?,?,?,?)",
-            [(track_id, m.role, m.content, _now()) for m in messages],
         )
         await db.commit()
 
@@ -169,7 +170,8 @@ async def get_coach_context(track_id: str) -> str | None:
     """Reconstruct the grounding context (features + prior feedback) for a track from SQLite.
 
     Used as a fallback when `audio_analysis._track_context` doesn't have the track in memory —
-    e.g. after a server restart, or a chat request for a track analyzed in a previous run.
+    e.g. after a server restart, or a chat request for a track analyzed in a previous run. Not
+    currently called by any active route (chat is disconnected) — kept working for when it is.
     """
     async with connect() as db:
         cursor = await db.execute(
@@ -203,7 +205,7 @@ async def list_coach_history(limit: int = 20) -> list[CoachHistoryEntry]:
     async with connect() as db:
         cursor = await db.execute(
             "SELECT ct.track_id, ct.created_at, ct.filename, ct.duration_sec, cf.features_json, "
-            "cf.ai_available, cf.strengths_json, cf.improvements_json, cf.follow_up_questions_json "
+            "cf.strengths_json, cf.improvements_json "
             "FROM coach_tracks ct LEFT JOIN coach_feedback cf ON cf.track_id = ct.track_id "
             "ORDER BY ct.rowid DESC LIMIT ?",
             (limit,),
@@ -218,10 +220,8 @@ async def list_coach_history(limit: int = 20) -> list[CoachHistoryEntry]:
             feedback = CoachFeedbackResponse(
                 track_id=row["track_id"],
                 features=TrackFeatures(**features),
-                ai_available=bool(row["ai_available"]),
                 strengths=json.loads(row["strengths_json"]),
                 improvements=json.loads(row["improvements_json"]),
-                follow_up_questions=json.loads(row["follow_up_questions_json"]),
             )
         entries.append(
             CoachHistoryEntry(
@@ -235,7 +235,10 @@ async def list_coach_history(limit: int = 20) -> list[CoachHistoryEntry]:
     return entries
 
 
-async def get_coach_chat_history(track_id: str) -> list[CoachChatHistoryEntry]:
+async def get_coach_chat_history(track_id: str):
+    """Kept for a future chat pass — not called by any active route (chat is disconnected)."""
+    from app.models.schemas import CoachChatHistoryEntry
+
     async with connect() as db:
         cursor = await db.execute(
             "SELECT role, content, created_at FROM coach_chat_messages WHERE track_id = ? ORDER BY id",
@@ -243,3 +246,13 @@ async def get_coach_chat_history(track_id: str) -> list[CoachChatHistoryEntry]:
         )
         rows = await cursor.fetchall()
     return [CoachChatHistoryEntry(role=r["role"], content=r["content"], created_at=r["created_at"]) for r in rows]
+
+
+async def append_coach_chat_messages(track_id: str, messages) -> None:
+    """Kept for a future chat pass — not called by any active route (chat is disconnected)."""
+    async with connect() as db:
+        await db.executemany(
+            "INSERT INTO coach_chat_messages (track_id, role, content, created_at) VALUES (?,?,?,?)",
+            [(track_id, m.role, m.content, _now()) for m in messages],
+        )
+        await db.commit()

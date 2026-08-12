@@ -1,28 +1,23 @@
 """Shared Pydantic request/response models for all three features.
 
-These define the API contract described in ARCHITECTURE.md. Fields are the target shape for
-each phase; they may be trimmed/adjusted as each phase is actually implemented.
+These define the API contract described in ARCHITECTURE.md. Every feature currently runs on
+deterministic Python analysis only (pretty_midi/librosa/pronouncing) — no LLM calls are wired up
+to any route right now. `app/services/ollama_client.py` and a few AI-narrative service functions
+(`lyrics_lab.generate_lines`, `audio_analysis.continue_chat`) are kept in the codebase, unused, so
+an AI layer can be reconnected later without redesigning the API — but no schema field here should
+imply an AI/Ollama dependency exists today.
 """
 
 from pydantic import BaseModel
 
 
 # ---------------------------------------------------------------------------
-# System
-# ---------------------------------------------------------------------------
-
-
-class OllamaAvailabilityResponse(BaseModel):
-    installed: bool
-
-
-# ---------------------------------------------------------------------------
-# MIDI Analyzer (Phase 1)
+# MIDI Analyzer
 # ---------------------------------------------------------------------------
 
 
 class MidiAnalysisResponse(BaseModel):
-    # Deterministic features — always populated, computed with pretty_midi alone, no LLM involved.
+    # Core features — pretty_midi.
     bpm: float
     time_signature: str
     key: str
@@ -31,9 +26,14 @@ class MidiAnalysisResponse(BaseModel):
     avg_velocity: int
     track_count: int
 
-    # AI-enhanced fields — only populated if Ollama is reachable locally. `ai_available` tells the
-    # frontend whether to render them or show a "set up Ollama" hint instead.
-    ai_available: bool
+    # Deeper deterministic features — still pretty_midi alone, no LLM involved.
+    unique_pitch_classes: int
+    velocity_range: tuple[int, int]
+    avg_note_length_sec: float
+    polyphony: int
+    syncopation: float
+
+    # Rule-based read on the features above (plain Python thresholds, not a model call).
     feel_summary: str
     notes: str
     suggestions: list[str]
@@ -46,13 +46,12 @@ class MidiHistoryEntry(MidiAnalysisResponse):
 
 
 # ---------------------------------------------------------------------------
-# Lyric Lab (Phase 2)
+# Lyric Lab
 # ---------------------------------------------------------------------------
 
 
 class LyricsAnalyzeRequest(BaseModel):
     lyrics: str
-    style_reference: str | None = None
 
 
 class LineNote(BaseModel):
@@ -69,6 +68,8 @@ class LyricsAnalyzeResponse(BaseModel):
 
 
 class LyricsGenerateRequest(BaseModel):
+    """Kept for a future AI-generation pass — not wired up to any route right now."""
+
     lyrics: str
     theme_or_prompt: str
     style_reference: str | None = None
@@ -82,15 +83,15 @@ class LyricsGenerateResponse(BaseModel):
 class LyricsHistoryEntry(BaseModel):
     id: int
     created_at: str
-    mode: str  # "analyze" | "generate"
+    mode: str  # "analyze" (only mode produced today; "generate" may exist in older history rows)
     lyrics: str
     style_reference: str | None = None
     theme_or_prompt: str | None = None
-    result: dict  # LyricsAnalyzeResponse or LyricsGenerateResponse shape, depending on `mode`
+    result: dict  # LyricsAnalyzeResponse shape (or a legacy {"candidates": [...]} shape)
 
 
 # ---------------------------------------------------------------------------
-# AI Coach (Phase 3)
+# AI Coach
 # ---------------------------------------------------------------------------
 
 
@@ -102,7 +103,6 @@ class CoachUploadResponse(BaseModel):
 
 class CoachFeedbackRequest(BaseModel):
     track_id: str
-    use_ai: bool = False
 
 
 class TrackFeatures(BaseModel):
@@ -110,21 +110,26 @@ class TrackFeatures(BaseModel):
     key: str
     rms_db: float
     brightness_hz: float
+    # Deeper deterministic features — still librosa alone, no LLM involved. Defaulted to 0 so
+    # history rows saved before these fields existed still deserialize.
+    rolloff_hz: float = 0.0
+    zero_crossing_rate: float = 0.0
+    dynamic_range_db: float = 0.0
+    low_end_ratio: float = 0.0
+    onset_density: float = 0.0
 
 
 class CoachFeedbackResponse(BaseModel):
     track_id: str
-    # Deterministic — always populated, computed with librosa alone, no LLM involved.
     features: TrackFeatures
-    # AI-enhanced — only populated if Ollama is reachable locally, mirroring the MIDI Analyzer's
-    # `ai_available` split.
-    ai_available: bool
+    # Rule-based read on the features above (plain Python thresholds, not a model call).
     strengths: list[str]
     improvements: list[str]
-    follow_up_questions: list[str]
 
 
 class ChatMessage(BaseModel):
+    """Kept for a future AI-chat pass — not wired up to any route right now."""
+
     role: str  # "user" | "assistant"
     content: str
 

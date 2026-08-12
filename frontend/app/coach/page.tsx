@@ -3,27 +3,19 @@
 import { useEffect, useState } from "react";
 import {
   ApiError,
-  getCoachChatHistory,
   getCoachHistory,
   getFeedback,
-  sendChatMessage,
   uploadTrack,
-  type ChatMessage,
   type CoachFeedbackResponse,
   type CoachHistoryEntry,
 } from "@/lib/api";
 import { useCountUp } from "@/lib/useCountUp";
-import UseAiToggle from "@/components/UseAiToggle";
 
 export default function CoachPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [useAi, setUseAi] = useState(false);
-  const [trackId, setTrackId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<CoachFeedbackResponse | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<"upload" | "feedback" | "chat" | "history" | null>(null);
+  const [loading, setLoading] = useState<"upload" | "feedback" | null>(null);
   const [history, setHistory] = useState<CoachHistoryEntry[]>([]);
 
   useEffect(() => {
@@ -33,9 +25,7 @@ export default function CoachPage() {
   }, []);
 
   function friendlyError(err: unknown) {
-    if (!(err instanceof ApiError)) return "Something went wrong.";
-    if (err.status === 503) return `${err.message} (Ollama isn't reachable — run \`ollama serve\`.)`;
-    return err.message;
+    return err instanceof ApiError ? err.message : "Something went wrong.";
   }
 
   async function handleUploadAndAnalyze() {
@@ -43,12 +33,10 @@ export default function CoachPage() {
     setLoading("upload");
     setError(null);
     setFeedback(null);
-    setMessages([]);
     try {
       const uploaded = await uploadTrack(file);
-      setTrackId(uploaded.track_id);
       setLoading("feedback");
-      setFeedback(await getFeedback(uploaded.track_id, useAi));
+      setFeedback(await getFeedback(uploaded.track_id));
       getCoachHistory()
         .then(setHistory)
         .catch(() => {});
@@ -59,41 +47,15 @@ export default function CoachPage() {
     }
   }
 
-  async function loadHistoryEntry(entry: CoachHistoryEntry) {
+  function loadHistoryEntry(entry: CoachHistoryEntry) {
     setError(null);
-    setTrackId(entry.track_id);
     setFeedback(entry.feedback);
-    setLoading("history");
-    try {
-      setMessages(await getCoachChatHistory(entry.track_id));
-    } catch (err) {
-      setError(friendlyError(err));
-    } finally {
-      setLoading(null);
-    }
-  }
-
-  async function handleSendMessage() {
-    if (!trackId || !chatInput.trim()) return;
-    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: chatInput }];
-    setMessages(nextMessages);
-    setChatInput("");
-    setLoading("chat");
-    setError(null);
-    try {
-      const { reply } = await sendChatMessage(trackId, nextMessages);
-      setMessages([...nextMessages, { role: "assistant", content: reply }]);
-    } catch (err) {
-      setError(friendlyError(err));
-    } finally {
-      setLoading(null);
-    }
   }
 
   return (
     <div>
       <h1 className="glitch-text mb-2 font-display text-3xl uppercase tracking-wide">AI Coach</h1>
-      <p className="mb-6 text-muted">Upload a song and get feedback, then ask follow-up questions.</p>
+      <p className="mb-6 text-muted">Upload a song and get feedback.</p>
 
       <div className="hud-panel border border-border bg-surface p-6">
         <input
@@ -102,16 +64,13 @@ export default function CoachPage() {
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className="mb-4 block w-full font-mono text-sm text-muted"
         />
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={handleUploadAndAnalyze}
-            disabled={!file || loading !== null}
-            className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
-          >
-            {loading === "upload" || loading === "feedback" ? "Analyzing..." : "Upload & Analyze"}
-          </button>
-          <UseAiToggle checked={useAi} onChange={setUseAi} />
-        </div>
+        <button
+          onClick={handleUploadAndAnalyze}
+          disabled={!file || loading !== null}
+          className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
+        >
+          {loading === "upload" || loading === "feedback" ? "Analyzing..." : "Upload & Analyze"}
+        </button>
       </div>
 
       {error && (
@@ -125,78 +84,31 @@ export default function CoachPage() {
             <Stat label="Key" value={feedback.features.key} />
             <Stat label="Loudness" value={`${feedback.features.rms_db} dB`} />
             <Stat label="Brightness" value={`${Math.round(feedback.features.brightness_hz)} Hz`} />
+            <Stat label="Rolloff" value={`${Math.round(feedback.features.rolloff_hz)} Hz`} />
+            <Stat label="Zero-Crossing Rate" value={feedback.features.zero_crossing_rate} />
+            <Stat label="Dynamic Range" value={`${feedback.features.dynamic_range_db} dB`} />
+            <Stat label="Low-End Ratio" value={`${Math.round(feedback.features.low_end_ratio * 100)}%`} />
+            <Stat label="Onset Density" value={`${feedback.features.onset_density}/s`} />
           </div>
-          {feedback.ai_available ? (
-            <>
-              <div className="hud-panel border border-border bg-surface p-4">
-                <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
-                  Strengths
-                </h3>
-                <ul className="list-inside list-disc text-sm text-muted">
-                  {feedback.strengths.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-              <div className="hud-panel border border-border bg-surface p-4">
-                <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
-                  Improvements
-                </h3>
-                <ul className="list-inside list-disc text-sm text-muted">
-                  {feedback.improvements.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-                </ul>
-              </div>
-              {feedback.follow_up_questions.length > 0 && (
-                <div className="hud-panel border border-border bg-surface p-4">
-                  <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
-                    The coach might ask
-                  </h3>
-                  <ul className="list-inside list-disc text-sm text-muted">
-                    {feedback.follow_up_questions.map((q, i) => (
-                      <li key={i}>{q}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="border border-dashed border-border p-4 font-mono text-sm text-muted">
-              Turn on <span className="text-accent2">&quot;Use Ollama AI Coach&quot;</span> above and
-              try again for written feedback and follow-up chat.
-            </div>
-          )}
-        </div>
-      )}
-
-      {trackId && feedback && feedback.ai_available && (
-        <div className="hud-panel mt-6 border border-border bg-surface p-4">
-          <h3 className="mb-3 font-mono text-xs uppercase tracking-widest text-accent2">
-            Ask a follow-up
-          </h3>
-          <div className="mb-3 space-y-2">
-            {messages.map((m, i) => (
-              <p key={i} className="text-sm">
-                <span className="text-muted">{m.role === "user" ? "You: " : "Coach: "}</span>
-                {m.content}
-              </p>
-            ))}
+          <div className="hud-panel border border-border bg-surface p-4">
+            <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
+              Strengths
+            </h3>
+            <ul className="list-inside list-disc text-sm text-muted">
+              {feedback.strengths.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
           </div>
-          <div className="flex gap-2">
-            <input
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              placeholder="e.g. why does the low end sound muddy?"
-              className="flex-1 border border-border bg-background p-2 text-sm"
-            />
-            <button
-              onClick={handleSendMessage}
-              disabled={!chatInput.trim() || loading !== null}
-              className="border border-accent px-4 py-2 text-sm font-medium uppercase tracking-wide text-accent transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
-            >
-              Send
-            </button>
+          <div className="hud-panel border border-border bg-surface p-4">
+            <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
+              Improvements
+            </h3>
+            <ul className="list-inside list-disc text-sm text-muted">
+              {feedback.improvements.map((s, i) => (
+                <li key={i}>{s}</li>
+              ))}
+            </ul>
           </div>
         </div>
       )}

@@ -2,69 +2,114 @@
 
 ## Purpose
 
-Local-first AI assistant for producers in the rage/plugg lane (Ken Carson, Playboi Carti,
-OsamaSon, Draco FM as style references). Three independent features, no account, no cloud API key.
-Deterministic analysis (BPM/key/loudness/etc.) always runs in pure Python; Ollama AI narrative
-feedback is optional and strictly opt-in via a UI toggle, not attempted automatically.
+Local-first music assistant, no account, no cloud API key. Three independent features, **all fully
+deterministic Python right now — no AI/LLM is wired up to any route**. Ollama integration exists in
+the codebase but is intentionally disconnected (see "AI is currently disconnected, not deleted"
+below); it's meant to be reconnected as a later layer on top, not the thing the app depends on today.
 
 ## Current working features
 
 1. **MIDI Analyzer** — upload a `.mid`/`.midi` file, get BPM, time signature, key, note density,
-   pitch range, avg velocity, track count (deterministic, `pretty_midi`). AI feel/mood summary +
-   suggestions only run if the user toggles AI on and Ollama is installed.
-2. **Lyric Lab** — paste lyrics, get critique (rhyme/repetition/cadence/imagery, line-by-line) or
-   generate N candidate lines. Pure LLM feature (no deterministic mode) — the "Use Ollama AI Coach"
-   toggle gates whether the analyze/generate actions are even clickable.
-3. **AI Coach** — upload an audio file (`.wav/.mp3/.m4a/.flac/.aiff`), get deterministic features
-   (BPM, key, RMS loudness, spectral brightness via `librosa`). AI strengths/improvements/
-   follow-up questions + multi-turn chat only run if AI is toggled on.
+   pitch range, avg velocity, track count, unique pitch classes, velocity range, avg note length,
+   polyphony (max simultaneous notes), syncopation (off-beat onset fraction) — all `pretty_midi`.
+   `feel_summary`/`notes`/`suggestions` are a rule-based read on those numbers (plain Python
+   thresholds in `_describe_features()`), always populated, no model call.
+2. **Lyric Lab** — paste lyrics, get critique only (line generation is disconnected — see below).
+   Real phonetic rhyme-scheme detection, syllable counting, and cadence-consistency analysis via
+   the CMU Pronouncing Dictionary (`pronouncing`/`cmudict` packages), with a grapheme-based
+   heuristic fallback for slang/OOV words. Repetition analysis distinguishes intentional hook
+   repetition (a line repeated verbatim) from word-level overuse.
+3. **AI Coach** — upload an audio file (`.wav/.mp3/.m4a/.flac/.aiff`), get BPM, key, RMS loudness,
+   spectral brightness/rolloff, zero-crossing rate, dynamic range (crest factor), low-end energy
+   ratio, onset density — all `librosa`. `strengths`/`improvements` are a rule-based read on those
+   numbers, always populated. Follow-up chat is disconnected (see below).
 
 All three persist history to SQLite, browsable via a "Recent" panel on each page (click to reload
-a past result). Visual identity is a cyberpunk/HUD look: angular corner-bracket panels, animated
-cyan grid overlay, monospace terminal font for readouts, neon glow/status colors, scanline hover
-sweep, animated count-up stat reveals.
+a past result). Visual identity is "Crystal Arcade" — bright glossy JRPG-menu look (see the
+Frontend section below for details).
+
+## AI is currently disconnected, not deleted
+
+Per explicit user instruction: strip AI/Ollama out of every active code path and UI surface, but
+keep the underlying integration code in the repo (not git-deleted) so a future AI layer doesn't
+require rebuilding from scratch. Concretely:
+
+- `app/services/ollama_client.py` (the Ollama HTTP client) is untouched and still fully functional
+  — nothing currently calls it from an active route.
+- `lyrics_lab.generate_lines()` (AI line generation) and `audio_analysis.continue_chat()` +
+  `_track_context` (AI chat) are still defined and still work, they're just not wired to any
+  router endpoint. `history.append_coach_chat_messages()` / `get_coach_chat_history()` /
+  `get_coach_context()` are the same story on the persistence side.
+- `app/routers/system.py` (`GET /api/system/ollama-installed`) still works standalone but is not
+  registered in `app/main.py` — see the comment there.
+- Schemas for the disconnected features (`ChatMessage`, `CoachChatRequest/Response`,
+  `LyricsGenerateRequest/Response`) are still defined in `models/schemas.py`, just unused by any
+  router.
+- DB columns that only ever supported the AI path (`ai_available`, `follow_up_questions_json` on
+  `coach_feedback`; `ai_available` on `midi_analyses`) are still in the SQLite schema — SQLite
+  can't cheaply drop columns, so `history.py` just writes constant placeholder values into them
+  now rather than migrating them away. Existing local history rows load fine unchanged.
+- To reconnect any of this later: add a router endpoint that calls the relevant kept-but-unused
+  service function, and rebuild whatever frontend UI called it before (see git history for the
+  previous `UseAiToggle`/chat-box/Generate-Lines UI, since removed).
 
 ## Architecture
 
 - **Backend**: FastAPI (`backend/app/`), routers thin (validate → call service → shape response),
   logic lives in `backend/app/services/*.py`.
-  - `routers/{midi,lyrics,coach,system}.py` — one per feature, prefixed `/api/{midi,lyrics,coach,
-    system}`. `system.py` is new: `GET /api/system/ollama-installed`.
-  - `services/midi_analysis.py`, `services/audio_analysis.py`, `services/lyrics_lab.py` — feature
-    logic. MIDI and Coach split deterministic feature extraction (always runs) from an LLM
-    narrative layer, now gated behind a `use_ai: bool = False` parameter on `analyze_midi()` /
-    `generate_feedback()` — when `False`, `_interpret_features()` is skipped entirely and
-    `ai_available` is `False` without any Ollama call being attempted. Lyric Lab has no
-    deterministic mode (`OllamaError`→503, unparseable-output `LyricsLLMError`→502 propagate to
-    the router) — the frontend toggle gates whether its endpoints get called at all.
-  - `services/ollama_client.py` — the only place that talks to Ollama's HTTP API
-    (`chat()`/`generate()`) and owns `parse_json_response()` (strips markdown fences, repairs a
-    `\'` escape bug `llama3:8b` emits). Also owns `is_installed()` — a synchronous, stdlib-only
-    check (`shutil.which("ollama")`) for whether the CLI is on PATH; no network call, doesn't
-    indicate whether `ollama serve` is running.
+  - `routers/{midi,lyrics,coach}.py` — one per active feature, prefixed `/api/{midi,lyrics,coach}`.
+    `routers/system.py` exists but isn't registered in `main.py` (see "AI is currently disconnected"
+    above).
+  - `services/midi_analysis.py` — `pretty_midi` feature extraction (bpm/key/time signature/density/
+    pitch range/velocity/track count, plus depth: `unique_pitch_classes`, `velocity_range`,
+    `avg_note_length_sec`, `polyphony` via a sweep-line overlap count, `syncopation` via 16th-note
+    grid quantization) and `_describe_features()`, a plain-threshold rule-based text generator for
+    `feel_summary`/`notes`/`suggestions` — no model call anywhere in this file.
+  - `services/audio_analysis.py` — `librosa` feature extraction (bpm/key/rms_db/brightness_hz, plus
+    depth: `rolloff_hz`, `zero_crossing_rate`, `dynamic_range_db` (crest factor), `low_end_ratio`
+    (energy below 150Hz), `onset_density`) and `_describe_features()`, same rule-based-text pattern
+    as MIDI, for `strengths`/`improvements`. `continue_chat()`/`_track_context` are kept but
+    disconnected (see above).
+  - `services/lyrics_lab.py` — `analyze_lyrics()` (sync, no `await` — no I/O) does real phonetic
+    rhyme-scheme detection (`rhyme_key()`: CMU dict via `pronouncing.rhyming_part()`, falling back
+    to `_heuristic_rhyme_key()` — grapheme-based, from the last vowel group to end-of-word, with a
+    "-y → -i" normalization since English "-y" endings usually sound like "-ee") and syllable
+    counting (`syllable_count()`: CMU dict via `pronouncing.syllable_count()`, falling back to
+    `_heuristic_syllables()` — vowel-group counting with a silent-e correction). Rhyme scheme is
+    labeled A/B/C... by first-seen key match; pattern detection compares couplet-rate (line rhymes
+    next line) vs alternating-rate (line rhymes two lines back) to guess AABB vs ABAB vs no pattern,
+    and flags lines that break the dominant pattern. Cadence flags lines whose syllable count
+    deviates > 1.3×stdev (min 2) from the mean. Repetition separates hook lines (any line repeated
+    ≥2x verbatim) from word-level overuse (any non-stopword used ≥4x outside a hook line).
+    `generate_lines()` (AI line generation) is kept but disconnected.
+  - `services/ollama_client.py` — untouched, kept but disconnected (see above).
   - `services/history.py` — owns all SQLite specifics (`save_*`/`list_*`/`get_*` per feature).
+    Writes constant placeholder values into now-vestigial AI-only columns (see above) rather than
+    migrating them away.
   - `core/db.py` — schema (5 tables) + `init_db()` (called from `main.py` lifespan) + an
-    `aiosqlite` `connect()` context manager (fresh connection per call).
-  - `core/config.py` — `pydantic-settings`, reads `backend/.env` (`OLLAMA_HOST`, `OLLAMA_MODEL`,
-    `UPLOAD_DIR`, `CORS_ORIGINS`; `db_path` defaults to `./app.db`).
-  - `models/schemas.py` — all request/response Pydantic models. New: `OllamaAvailabilityResponse
-    {installed: bool}`; `CoachFeedbackRequest` gained `use_ai: bool = False`.
-  - No auth. Uploads go to `backend/uploads/` (gitignored); Coach's in-memory `_track_context`
-    dict is the fast path for chat grounding, with `history.get_coach_context()` as a SQLite
-    fallback after a restart.
+    `aiosqlite` `connect()` context manager (fresh connection per call). New columns added since
+    the initial release go through `_NEW_COLUMNS` + a defensive `ALTER TABLE ADD COLUMN` loop that
+    swallows "duplicate column name" errors — the lightweight migration approach for a single-file
+    local SQLite db with no concurrent writers. Existing local history data was **not** wiped for
+    this change.
+  - `core/config.py` — `pydantic-settings`, reads `backend/.env` (`OLLAMA_HOST`, `OLLAMA_MODEL` —
+    still read even though nothing currently uses them; `UPLOAD_DIR`, `CORS_ORIGINS`; `db_path`
+    defaults to `./app.db`).
+  - `models/schemas.py` — all request/response Pydantic models. `TrackFeatures`'s new depth fields
+    default to `0.0` so history rows saved before they existed still deserialize.
+  - No auth. Uploads go to `backend/uploads/` (gitignored).
 - **Frontend**: Next.js App Router + TypeScript + Tailwind (`frontend/`).
-  - One page per feature (`app/{coach,lyrics,midi-analyzer}/page.tsx`): upload/input form → HUD
-    stat panels → AI sections (gated on the toggle + `ai_available`) → "Recent" history panel.
-    Pages never call `fetch()` directly — everything routes through `lib/api.ts`.
-  - `lib/api.ts` — typed fetch wrappers. `getOllamaInstalled()` is new. `analyzeMidi(file, useAi)`
-    and `getFeedback(trackId, useAi)` now take a `useAi` argument sent to the backend as
-    `use_ai`. Every call goes through `safeFetch()` (network failure → readable `ApiError`).
+  - One page per feature (`app/{coach,lyrics,midi-analyzer}/page.tsx`): upload/input form → stat
+    panels → results (always rendered, no AI-gating) → "Recent" history panel. Pages never call
+    `fetch()` directly — everything routes through `lib/api.ts`. No AI toggle, no chat UI, no
+    Generate-Lines UI anywhere — `components/UseAiToggle.tsx` was deleted (nothing imports it).
+  - `lib/api.ts` — typed fetch wrappers, one per active endpoint only (no `getOllamaInstalled`,
+    `sendChatMessage`, `generateLyrics`, `getCoachChatHistory` — all removed since their backend
+    routes are disconnected). `analyzeMidi(file)` / `getFeedback(trackId)` / `analyzeLyrics(lyrics)`
+    take no AI-related params anymore. `TrackFeatures`/`MidiAnalysisResponse` types include all the
+    new depth fields. Every call goes through `safeFetch()` (network failure → readable `ApiError`).
     Upload size caps enforced client-side before any request (MIDI 10MB, Coach 50MB).
-  - `components/UseAiToggle.tsx` — new. Self-contained: fetches `getOllamaInstalled()` on mount,
-    renders a controlled toggle button (`checked`/`onChange` props) that's disabled with a tooltip
-    if Ollama isn't found. Used on all three feature pages; on Lyric Lab it also gates whether
-    Analyze/Generate are clickable at all (no deterministic fallback exists there).
-  - `lib/useCountUp.ts` — new. `requestAnimationFrame`-based hook animating a number from 0 to a
+  - `lib/useCountUp.ts` — `requestAnimationFrame`-based hook animating a number from 0 to a
     target value (~600ms, cubic ease-out); used by each page's `Stat` helper for numeric readouts.
   - Visual identity: **"Crystal Arcade"** — bright glossy JRPG-menu look, replacing the earlier
     dark cyberpunk/HUD theme. Anton (`--font-display`) + JetBrains Mono (`--font-mono`) via
@@ -94,44 +139,41 @@ sweep, animated count-up stat reveals.
 
 ## Important technical decisions/constraints
 
-- **Deterministic-vs-LLM split is a hard rule** (see `CLAUDE.md`): a numeric fact (BPM, key,
-  duration, loudness) must never come only from an LLM call. MIDI Analyzer and AI Coach always
-  compute and display deterministic features regardless of AI state.
-- **AI is strictly opt-in now, not auto-attempted.** Previously MIDI/Coach always tried Ollama and
-  reported whether it happened to succeed; now the backend only calls Ollama when the caller
-  passes `use_ai=true`, which the frontend only does when the user has clicked the toggle (and the
-  toggle only allows this when `is_installed()` is true). This applies to MIDI/Coach; Lyric Lab
-  has no non-AI mode so the toggle instead gates whether its actions are clickable.
-- `ollama_client.is_installed()` only checks PATH — it does not check whether `ollama serve` is
-  currently running. That distinction was deliberately dropped (per user feedback) in favor of a
-  single simple toggle; a request with `use_ai=true` against an installed-but-not-running Ollama
-  still fails with the existing `OllamaError`→503/graceful-degrade paths.
-- All new Ollama calls must go through `ollama_client.chat()`/`generate()`; all LLM JSON parsing
-  through `parse_json_response()`.
+- **Every feature is 100% deterministic Python right now — no AI call happens on any active code
+  path.** This was an explicit, deliberate reversal of the earlier "AI is opt-in via a toggle"
+  design: AI isn't opt-in anymore, it's fully disconnected. See "AI is currently disconnected, not
+  deleted" above for exactly what was kept vs. what was removed from the UI/routes.
+- **Deterministic-vs-LLM split is still the rule for when AI comes back** (see `CLAUDE.md`): a
+  numeric fact (BPM, key, duration, loudness) must never come only from an LLM call. This mattered
+  less when AI was disconnected but stays the constraint to design around when reconnecting it.
+- Rhyme/syllable analysis depends on the `pronouncing`/`cmudict` PyPI packages (pure Python, CMU
+  dict bundled locally, no network call at runtime) — added to `requirements.txt`. Words not in the
+  CMU dict (slang, made-up words) fall back to grapheme-based heuristics in `lyrics_lab.py`, which
+  are less accurate than real phonetic matching.
 - Upload size caps: Coach 50MB, MIDI 10MB — enforced both server-side and client-side.
 - `backend/app.db` (SQLite) is gitignored. Don't delete it while the server is running (recreates
-  an empty DB with no tables, causing 500s). Stop the server first.
-- No new npm/pip dependencies were introduced for the HUD redesign or the install-check feature —
-  `shutil` (stdlib) for detection, hand-written CSS/RAF for animation.
+  an empty DB with no tables, causing 500s). Stop the server first. This change specifically avoided
+  needing to delete/migrate it — see `core/db.py`'s `_NEW_COLUMNS` approach above.
+- No new npm dependencies on the frontend side for this change (only `lib/api.ts` types/functions
+  changed). Backend gained `pronouncing`+`cmudict` (see `requirements.txt`).
 
 ## Known bugs/issues
 
-- **`llama3:8b` occasionally still returns unparseable JSON** despite `parse_json_response()`'s
-  repair pass (fences + `\'` fix) — not reproducible on every call with the same input. No further
-  mitigation attempted beyond fence-strip + escape-repair.
 - No automated test suite exists for either backend or frontend — verification is manual (curl +
   live browser checks via the Claude Preview tool).
-- Local Ollama generation (`llama3:8b`, CPU) can take 60–90+ seconds for longer prompts (e.g.
-  Lyric Lab analyze); there's no loading-time expectation set in the UI beyond a spinner-less
-  "Analyzing..."/"Generating..." button label — a long wait can look stuck without one.
-- The `UseAiToggle` re-fetches `is_installed()` independently on every page (each page's toggle
-  instance mounts its own check) — harmless (cheap local check) but slightly redundant; could be
-  lifted to a shared context if it ever needs to be shown outside per-page toggles (e.g. in
-  `NavBar`).
+- The heuristic rhyme-key fallback (for words outside the CMU dict) is grapheme-based and will
+  sometimes fail to match words that a CMU-dict word would correctly rhyme with, since it can't
+  reason about pronunciation the way the dictionary lookup can — documented as a known limitation
+  in `lyrics_lab.py`'s docstrings rather than solved.
+- `syncopation` in the MIDI Analyzer is a simplified proxy (16th-note grid quantization, on-beat
+  vs off-beat) — it doesn't weight by metric accent the way a music-theory-grade syncopation score
+  would, and can read high on synthetic/quantized-oddly test files. Documented as a simplification
+  in `midi_analysis.py`'s docstring.
 
 ## Next task
 
-Nothing is currently blocking or in progress. The most recently requested change (Crystal Arcade
-glossy/JRPG visual redesign, replacing the cyberpunk/HUD theme, with an original mascot) is
-complete, committed, and pushed to `main`. No next task has been defined yet — check with the user
-for what's next.
+Nothing is currently blocking or in progress. The most recently requested change — removing all
+Ollama/AI integration from active use and replacing it with deeper deterministic Python analysis
+across all three features (MIDI Analyzer, AI Coach, Lyric Lab) — is complete, verified end-to-end
+(direct API calls with real files + live browser click-through), committed, and pushed to `main`.
+No next task has been defined yet — check with the user for what's next.
