@@ -87,12 +87,15 @@ grounded in that track's analysis.
       undecodable-file edge cases
 - See [docs/FEATURE_COACH.md](docs/FEATURE_COACH.md)
 
-### Phase 4 — Polish
-- Visual identity: dark theme, distorted/glitch accents in the UI matching the reference artists'
-  aesthetic (currently just a placeholder dark Tailwind theme)
-- Persist history (SQLite) — past tracks, past lyric sessions, so users can revisit feedback
-- Error handling / loading states / file-size limits polish
-- Optional: swap Ollama for a hosted model behind an env flag, once local-first is proven out
+### Phase 4 — Polish (in progress)
+- [x] Visual identity: Anton display font, sharp/angular corners, noise+scanline texture, accent
+      glow + glitch-flicker hover accents matching the reference artists' aesthetic
+- [x] Persist history (SQLite) — `backend/app/core/db.py` + `backend/app/services/history.py`;
+      past MIDI analyses, lyric sessions, and Coach tracks/feedback/chat are all saved and
+      browsable via a "Recent" panel on each page. Coach chat grounding falls back to the DB when
+      a track isn't in the in-memory context (e.g. after a server restart)
+- [ ] Error handling / loading states / file-size limits polish
+- [ ] Optional: swap Ollama for a hosted model behind an env flag, once local-first is proven out
 
 ## Open questions (revisit before/during relevant phase)
 

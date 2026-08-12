@@ -1,4 +1,3 @@
-import shutil
 import uuid
 
 from fastapi import APIRouter, HTTPException, UploadFile
@@ -9,6 +8,8 @@ from app.services import history, midi_analysis
 
 router = APIRouter(prefix="/api/midi", tags=["midi"])
 
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB — MIDI files are tiny; generous ceiling against bad uploads
+
 
 @router.post("/analyze", response_model=MidiAnalysisResponse)
 async def analyze(file: UploadFile):
@@ -16,8 +17,15 @@ async def analyze(file: UploadFile):
         raise HTTPException(status_code=400, detail="File must be a .mid or .midi file.")
 
     dest = settings.upload_dir / f"{uuid.uuid4()}_{file.filename}"
+    size = 0
     with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > _MAX_UPLOAD_BYTES:
+                f.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="File exceeds the 10MB upload limit.")
+            f.write(chunk)
 
     try:
         result = await midi_analysis.analyze_midi(dest)
