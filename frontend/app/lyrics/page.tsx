@@ -88,10 +88,7 @@ export default function LyricsPage() {
   return (
     <div>
       <h1 className="glitch-text mb-2 font-display text-3xl uppercase tracking-wide">Lyric Lab</h1>
-      <p className="mb-6 text-muted">
-        Paste your lyrics, get critique, or generate a few candidate lines that match your flow.
-        Critique/generation are inherently AI tasks — turn on Ollama below to use them.
-      </p>
+      <p className="mb-6 text-muted">Paste your lyrics and get feedback, or generate new lines.</p>
 
       <textarea
         value={lyrics}

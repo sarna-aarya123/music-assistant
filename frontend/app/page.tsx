@@ -43,9 +43,7 @@ export default function HomePage() {
             AI Music Assistant
           </h1>
           <p className="max-w-2xl text-muted">
-            Feedback and analysis for producers working in the rage / plugg lane — upload a beat, a
-            MIDI file, or your lyrics and get notes back in seconds. Deterministic analysis runs
-            entirely on your machine in Python; Ollama AI feedback is optional, opt-in, on top.
+            Upload a beat, a MIDI file, or your lyrics and get simple feedback back in seconds.
           </p>
         </div>
       </div>
@@ -54,22 +52,19 @@ export default function HomePage() {
         <FeatureCard
           href="/coach"
           title="AI Coach"
-          description="Upload a beat/melody/drum loop and get structured feedback, then ask follow-up questions."
-          phase="Phase 3"
+          description="Upload a song and get feedback."
           icon={<WaveformIcon />}
         />
         <FeatureCard
           href="/midi-analyzer"
           title="MIDI Analyzer"
-          description="Upload a .mid file and get key, BPM, feel, and mood."
-          phase="Phase 1"
+          description="Upload a MIDI file and see its key, tempo, and feel."
           icon={<GridIcon />}
         />
         <FeatureCard
           href="/lyrics"
           title="Lyric Lab"
-          description="Paste lyrics for critique, or generate lines that match your flow."
-          phase="Phase 2"
+          description="Paste lyrics and get feedback or new lines."
           icon={<TerminalIcon />}
         />
       </div>

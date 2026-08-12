@@ -93,10 +93,7 @@ export default function CoachPage() {
   return (
     <div>
       <h1 className="glitch-text mb-2 font-display text-3xl uppercase tracking-wide">AI Coach</h1>
-      <p className="mb-6 text-muted">
-        Upload a beat/melody/drum loop for deterministic Python-side features, plus optional
-        AI-generated feedback and follow-up chat.
-      </p>
+      <p className="mb-6 text-muted">Upload a song and get feedback, then ask follow-up questions.</p>
 
       <div className="hud-panel border border-border bg-surface p-6">
         <input
@@ -166,9 +163,8 @@ export default function CoachPage() {
             </>
           ) : (
             <div className="border border-dashed border-border p-4 font-mono text-sm text-muted">
-              The stats above are computed locally in Python — no AI needed. Toggle{" "}
-              <span className="text-accent2">&quot;Use Ollama AI Coach&quot;</span> above and re-run
-              upload &amp; analyze for strengths/improvements feedback and chat too.
+              Turn on <span className="text-accent2">&quot;Use Ollama AI Coach&quot;</span> above and
+              try again for written feedback and follow-up chat.
             </div>
           )}
         </div>
