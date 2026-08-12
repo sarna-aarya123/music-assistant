@@ -141,7 +141,7 @@ async def _interpret_features(feature_summary: str) -> tuple[bool, str, str, lis
         return True, "Feel summary unavailable — the model returned unparseable output.", raw.strip(), []
 
 
-async def analyze_midi(file_path: Path) -> MidiAnalysisResponse:
+async def analyze_midi(file_path: Path, use_ai: bool = False) -> MidiAnalysisResponse:
     midi_data = pretty_midi.PrettyMIDI(str(file_path))
 
     bpm = _tempo(midi_data)
@@ -163,7 +163,10 @@ async def analyze_midi(file_path: Path) -> MidiAnalysisResponse:
         f"Track/instrument count: {track_count}\n"
         f"Duration: {duration:.1f}s"
     )
-    ai_available, feel_summary, notes, suggestions = await _interpret_features(feature_summary)
+    if use_ai:
+        ai_available, feel_summary, notes, suggestions = await _interpret_features(feature_summary)
+    else:
+        ai_available, feel_summary, notes, suggestions = False, "", "", []
 
     return MidiAnalysisResponse(
         bpm=round(bpm, 1),

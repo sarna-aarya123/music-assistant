@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.db import init_db
-from app.routers import coach, lyrics, midi
+from app.routers import coach, lyrics, midi, system
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ app.add_middleware(
 app.include_router(midi.router)
 app.include_router(lyrics.router)
 app.include_router(coach.router)
+app.include_router(system.router)
 
 
 @app.get("/health")
