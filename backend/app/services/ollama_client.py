@@ -9,6 +9,7 @@ Requires Ollama running locally: https://ollama.com (`ollama serve`, and a model
 
 import json
 import re
+import shutil
 
 import httpx
 
@@ -17,6 +18,17 @@ from app.core.config import settings
 
 class OllamaError(RuntimeError):
     """Raised when Ollama can't be reached or returns an error."""
+
+
+def is_installed() -> bool:
+    """Cheap, synchronous, local check for whether the `ollama` CLI is on PATH.
+
+    Every platform's Ollama installer registers the CLI on PATH, so this is a reliable
+    installed-or-not signal without making a network call. Doesn't say anything about whether
+    `ollama serve` is currently running — callers that need that should just attempt the request
+    and handle `OllamaError`.
+    """
+    return shutil.which("ollama") is not None
 
 
 async def chat(

@@ -150,7 +150,7 @@ async def _interpret_features(feature_summary: str) -> tuple[bool, list[str], li
         return True, [], [], []
 
 
-async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResponse:
+async def generate_feedback(track_id: str, file_path: Path, use_ai: bool = False) -> CoachFeedbackResponse:
     raw = _extract(file_path)
     features = TrackFeatures(
         bpm=raw["bpm"], key=raw["key"], rms_db=raw["rms_db"], brightness_hz=raw["brightness_hz"]
@@ -163,7 +163,10 @@ async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResp
         f"Duration: {raw['duration_sec']:.1f}s"
     )
 
-    ai_available, strengths, improvements, follow_up_questions = await _interpret_features(feature_summary)
+    if use_ai:
+        ai_available, strengths, improvements, follow_up_questions = await _interpret_features(feature_summary)
+    else:
+        ai_available, strengths, improvements, follow_up_questions = False, [], [], []
 
     _track_context[track_id] = (
         f"Track features:\n{feature_summary}\n\n"

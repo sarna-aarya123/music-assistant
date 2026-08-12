@@ -8,6 +8,15 @@ from pydantic import BaseModel
 
 
 # ---------------------------------------------------------------------------
+# System
+# ---------------------------------------------------------------------------
+
+
+class OllamaAvailabilityResponse(BaseModel):
+    installed: bool
+
+
+# ---------------------------------------------------------------------------
 # MIDI Analyzer (Phase 1)
 # ---------------------------------------------------------------------------
 
@@ -93,6 +102,7 @@ class CoachUploadResponse(BaseModel):
 
 class CoachFeedbackRequest(BaseModel):
     track_id: str
+    use_ai: bool = False
 
 
 class TrackFeatures(BaseModel):

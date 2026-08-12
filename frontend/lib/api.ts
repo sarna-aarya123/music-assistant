@@ -30,6 +30,16 @@ const MIDI_MAX_UPLOAD_MB = 10;
 const COACH_MAX_UPLOAD_MB = 50;
 
 // ---------------------------------------------------------------------------
+// System
+// ---------------------------------------------------------------------------
+
+export async function getOllamaInstalled(): Promise<boolean> {
+  const res = await safeFetch(`${API_BASE_URL}/api/system/ollama-installed`);
+  const { installed } = await handle<{ installed: boolean }>(res);
+  return installed;
+}
+
+// ---------------------------------------------------------------------------
 // MIDI Analyzer
 // ---------------------------------------------------------------------------
 
@@ -47,12 +57,13 @@ export type MidiAnalysisResponse = {
   suggestions: string[];
 };
 
-export async function analyzeMidi(file: File): Promise<MidiAnalysisResponse> {
+export async function analyzeMidi(file: File, useAi: boolean): Promise<MidiAnalysisResponse> {
   if (file.size > MIDI_MAX_UPLOAD_MB * 1024 * 1024) {
     throw new ApiError(413, `File exceeds the ${MIDI_MAX_UPLOAD_MB}MB upload limit.`);
   }
   const form = new FormData();
   form.append("file", file);
+  form.append("use_ai", String(useAi));
   const res = await safeFetch(`${API_BASE_URL}/api/midi/analyze`, { method: "POST", body: form });
   return handle<MidiAnalysisResponse>(res);
 }
@@ -157,11 +168,11 @@ export async function uploadTrack(file: File): Promise<CoachUploadResponse> {
   return handle<CoachUploadResponse>(res);
 }
 
-export async function getFeedback(trackId: string): Promise<CoachFeedbackResponse> {
+export async function getFeedback(trackId: string, useAi: boolean): Promise<CoachFeedbackResponse> {
   const res = await safeFetch(`${API_BASE_URL}/api/coach/feedback`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ track_id: trackId }),
+    body: JSON.stringify({ track_id: trackId, use_ai: useAi }),
   });
   return handle<CoachFeedbackResponse>(res);
 }

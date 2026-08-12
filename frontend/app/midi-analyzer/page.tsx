@@ -8,9 +8,12 @@ import {
   type MidiAnalysisResponse,
   type MidiHistoryEntry,
 } from "@/lib/api";
+import { useCountUp } from "@/lib/useCountUp";
+import UseAiToggle from "@/components/UseAiToggle";
 
 export default function MidiAnalyzerPage() {
   const [file, setFile] = useState<File | null>(null);
+  const [useAi, setUseAi] = useState(false);
   const [result, setResult] = useState<MidiAnalysisResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -32,7 +35,7 @@ export default function MidiAnalyzerPage() {
     setError(null);
     setResult(null);
     try {
-      const data = await analyzeMidi(file);
+      const data = await analyzeMidi(file, useAi);
       setResult(data);
       getMidiHistory()
         .then(setHistory)
@@ -46,31 +49,33 @@ export default function MidiAnalyzerPage() {
 
   return (
     <div>
-      <h1 className="mb-2 font-display text-3xl uppercase tracking-wide">MIDI Analyzer</h1>
+      <h1 className="glitch-text mb-2 font-display text-3xl uppercase tracking-wide">MIDI Analyzer</h1>
       <p className="mb-6 text-muted">
-        Upload a .mid file to get key, BPM, note density, and a plain-English feel/mood read.
+        Upload a .mid file to get key, BPM, note density — computed locally in Python — plus an
+        optional AI feel/mood read.
       </p>
 
-      <div className="rounded-lg border border-border bg-surface p-6">
+      <div className="hud-panel border border-border bg-surface p-6">
         <input
           type="file"
           accept=".mid,.midi"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="mb-4 block w-full text-sm text-muted"
+          className="mb-4 block w-full font-mono text-sm text-muted"
         />
-        <button
-          onClick={handleAnalyze}
-          disabled={!file || loading}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
-        >
-          {loading ? "Analyzing..." : "Analyze"}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleAnalyze}
+            disabled={!file || loading}
+            className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
+          >
+            {loading ? "Analyzing..." : "Analyze"}
+          </button>
+          <UseAiToggle checked={useAi} onChange={setUseAi} />
+        </div>
       </div>
 
       {error && (
-        <p className="mt-4 rounded-md border border-accent/40 bg-accent/10 p-3 text-sm text-accent">
-          {error}
-        </p>
+        <p className="mt-4 border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{error}</p>
       )}
 
       {result && (
@@ -85,17 +90,19 @@ export default function MidiAnalyzerPage() {
           </div>
           {result.ai_available ? (
             <>
-              <div className="rounded-lg border border-border bg-surface p-4">
-                <h3 className="mb-1 font-medium">Feel</h3>
+              <div className="hud-panel border border-border bg-surface p-4">
+                <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">Feel</h3>
                 <p className="text-sm text-muted">{result.feel_summary}</p>
               </div>
-              <div className="rounded-lg border border-border bg-surface p-4">
-                <h3 className="mb-1 font-medium">Notes</h3>
+              <div className="hud-panel border border-border bg-surface p-4">
+                <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">Notes</h3>
                 <p className="text-sm text-muted">{result.notes}</p>
               </div>
               {result.suggestions.length > 0 && (
-                <div className="rounded-lg border border-border bg-surface p-4">
-                  <h3 className="mb-1 font-medium">Suggestions</h3>
+                <div className="hud-panel border border-border bg-surface p-4">
+                  <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
+                    Suggestions
+                  </h3>
                   <ul className="list-inside list-disc text-sm text-muted">
                     {result.suggestions.map((s, i) => (
                       <li key={i}>{s}</li>
@@ -105,15 +112,10 @@ export default function MidiAnalyzerPage() {
               )}
             </>
           ) : (
-            <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted">
-              The stats above are computed locally — no AI needed. Want a plain-English feel/mood
-              read and suggestions too? Install{" "}
-              <a href="https://ollama.com" target="_blank" rel="noreferrer" className="text-accent underline">
-                Ollama
-              </a>
-              , run <code className="rounded bg-background px-1">ollama serve</code>, pull a model
-              (e.g. <code className="rounded bg-background px-1">ollama pull llama3:8b</code>), and
-              re-run the analysis.
+            <div className="border border-dashed border-border p-4 font-mono text-sm text-muted">
+              The stats above are computed locally in Python — no AI needed. Toggle{" "}
+              <span className="text-accent2">&quot;Use Ollama AI Coach&quot;</span> above and re-run the
+              analysis for a plain-English feel/mood read and suggestions too.
             </div>
           )}
         </div>
@@ -121,15 +123,17 @@ export default function MidiAnalyzerPage() {
 
       {history.length > 0 && (
         <div className="mt-10">
-          <h2 className="mb-3 font-display text-lg uppercase tracking-wide text-muted">Recent</h2>
+          <h2 className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-accent2">
+            // Recent
+          </h2>
           <ul className="space-y-2">
             {history.map((entry) => (
               <li key={entry.id}>
                 <button
                   onClick={() => setResult(entry)}
-                  className="w-full rounded-lg border border-border bg-surface p-3 text-left text-sm transition hover:border-accent"
+                  className="hud-panel w-full border border-border bg-surface p-3 text-left font-mono text-sm transition hover:border-accent2"
                 >
-                  <span className="font-medium">{entry.filename}</span>{" "}
+                  <span className="font-medium text-white">{entry.filename}</span>{" "}
                   <span className="text-muted">
                     — {entry.key}, {entry.bpm} BPM · {new Date(entry.created_at).toLocaleString()}
                   </span>
@@ -144,10 +148,12 @@ export default function MidiAnalyzerPage() {
 }
 
 function Stat({ label, value }: { label: string; value: string | number }) {
+  const animated = useCountUp(typeof value === "number" ? value : 0);
+  const display = typeof value === "number" ? Math.round(animated * 100) / 100 : value;
   return (
-    <div className="rounded-lg border border-border bg-surface p-3">
-      <div className="text-xs uppercase text-muted">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
+    <div className="hud-panel border border-border bg-surface p-3">
+      <div className="font-mono text-xs uppercase tracking-widest text-muted">{label}</div>
+      <div className="font-mono text-lg font-semibold text-accent2">{display}</div>
     </div>
   );
 }

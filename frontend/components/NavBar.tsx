@@ -8,14 +8,15 @@ const links = [
 
 export default function NavBar() {
   return (
-    <header className="border-b border-accent/40 bg-surface/60">
+    <header className="hud-panel border-b border-accent2/40 bg-surface/70 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
         <Link href="/" className="glitch-text font-display text-xl uppercase tracking-wide text-white">
+          <span className="mr-2 text-accent2">//</span>
           AI Music Assistant
         </Link>
-        <nav className="flex gap-6 text-xs uppercase tracking-widest text-muted">
+        <nav className="flex gap-6 font-mono text-xs uppercase tracking-widest text-muted">
           {links.map((link) => (
-            <Link key={link.href} href={link.href} className="transition hover:text-accent">
+            <Link key={link.href} href={link.href} className="transition hover:text-accent2">
               {link.label}
             </Link>
           ))}

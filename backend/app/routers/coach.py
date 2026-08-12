@@ -62,7 +62,7 @@ async def feedback(body: CoachFeedbackRequest):
         raise HTTPException(status_code=404, detail="Unknown track_id — upload the track first.")
 
     try:
-        result = await audio_analysis.generate_feedback(body.track_id, matches[0])
+        result = await audio_analysis.generate_feedback(body.track_id, matches[0], use_ai=body.use_ai)
     except AudioLoadError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
