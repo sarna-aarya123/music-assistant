@@ -118,7 +118,7 @@ export default function CoachPage() {
       </div>
 
       {error && (
-        <p className="mt-4 border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{error}</p>
+        <p className="mt-4 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{error}</p>
       )}
 
       {feedback && (
@@ -218,7 +218,7 @@ export default function CoachPage() {
                   disabled={loading !== null}
                   className="hud-panel w-full border border-border bg-surface p-3 text-left font-mono text-sm transition hover:border-accent2 disabled:opacity-40"
                 >
-                  <span className="font-medium text-white">{entry.filename}</span>{" "}
+                  <span className="font-medium text-ink">{entry.filename}</span>{" "}
                   <span className="text-muted">
                     — {entry.duration_sec}s · {new Date(entry.created_at).toLocaleString()}
                   </span>

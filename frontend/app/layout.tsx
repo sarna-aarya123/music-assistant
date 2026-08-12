@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Anton, JetBrains_Mono } from "next/font/google";
 import NavBar from "@/components/NavBar";
+import CrystalField from "@/components/CrystalField";
 import "./globals.css";
 
 const displayFont = Anton({
@@ -23,9 +24,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${displayFont.variable} ${monoFont.variable}`}>
-      <body className="min-h-screen bg-background text-white">
+      <body className="min-h-screen bg-background text-ink">
         <div aria-hidden className="hud-grid" />
         <div aria-hidden className="app-texture" />
+        <CrystalField />
         <NavBar />
         <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>
       </body>

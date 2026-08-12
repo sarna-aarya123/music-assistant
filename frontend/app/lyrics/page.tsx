@@ -144,7 +144,7 @@ export default function LyricsPage() {
       )}
 
       {error && (
-        <p className="mb-4 border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{error}</p>
+        <p className="mb-4 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{error}</p>
       )}
 
       {analysis && (

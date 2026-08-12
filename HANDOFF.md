@@ -66,15 +66,31 @@ sweep, animated count-up stat reveals.
     Analyze/Generate are clickable at all (no deterministic fallback exists there).
   - `lib/useCountUp.ts` — new. `requestAnimationFrame`-based hook animating a number from 0 to a
     target value (~600ms, cubic ease-out); used by each page's `Stat` helper for numeric readouts.
-  - Visual identity: Anton (`--font-display`) + JetBrains Mono (`--font-mono`) via
-    `next/font/google`, both loaded in `app/layout.tsx`. Tailwind theme (`tailwind.config.ts`)
-    adds `success`/`warning` colors, `font-mono`, `scan-sweep`/`status-pulse` keyframes. CSS
-    utilities in `globals.css`: `.hud-panel` (corner-bracket frame via `::before`/`::after`),
-    `.hud-grid` (fixed animated grid background layer), `.hud-scan-surface` (gradient band for
-    scanline hover), `.font-mono`, `.status-dot`. Existing `.app-texture` noise layer and
-    `.glitch-text` hover animation kept and applied more widely (page titles).
-  - No new npm dependencies — animations are hand-rolled CSS/`requestAnimationFrame`, no icon or
-    animation library.
+  - Visual identity: **"Crystal Arcade"** — bright glossy JRPG-menu look, replacing the earlier
+    dark cyberpunk/HUD theme. Anton (`--font-display`) + JetBrains Mono (`--font-mono`) via
+    `next/font/google`, both loaded in `app/layout.tsx`. `tailwind.config.ts` now defines a
+    pastel/candy palette (`background`/`surface`/`border`/`ink`/`accent`/`accent2`/`gold`/`muted`/
+    `success`/`warning`), large rounded radii, glossy `shadow-glow*`/`shadow-glass` tokens, and
+    motion keyframes (`gradient-drift`, `float-y`, `pop-in`, `blink`, `tail-sway`, `twinkle`, `bob`).
+    `globals.css` keeps the *same class names* the old theme used (`.hud-panel`, `.hud-grid`,
+    `.hud-scan-surface`, `.app-texture`, `.glitch-text`, `.status-dot`) but redefines them as glass/
+    glossy — this is why every page picked up the new look with almost no per-page edits: `.hud-panel`
+    is now a blurred glass card with a gloss-sheen `::before`, an iridescent gradient-border `::after`,
+    hover-lift, and a `pop-in` mount animation; `.glitch-text` is now a shimmering gradient-text
+    sweep; `body` has an animated drifting pastel gradient. Also added plain-CSS overrides for the
+    raw Tailwind utility classes still used directly (`.border-border` → rounded + soft border color,
+    `.bg-surface` → translucent glass, `.bg-accent`/`.border-accent` → pill radius + gloss + press
+    animation) so inputs/buttons that don't use `.hud-panel` reskin for free too.
+  - `components/Mascot.tsx` — an original hand-drawn SVG chibi "crystal fox spirit" mascot
+    (headphones, forehead gem, floating sparkles; no third-party character art) with CSS-driven
+    idle float/blink/tail-sway animation. Used in `NavBar` (small) and the homepage hero (large).
+  - `components/CrystalField.tsx` — fixed, decorative floating crystal-shard SVGs drifting behind
+    page content (`z-0`, `pointer-events: none`), rendered once in `app/layout.tsx`.
+  - `NavBar.tsx` is now a floating rounded glass bar (`sticky top-4`, `.hud-panel`) instead of a
+    full-width bottom-bordered strip; it wraps (`flex-wrap` + centered on small screens) to avoid
+    horizontal overflow on mobile — verified at 375px width.
+  - No new npm dependencies — animations are hand-rolled CSS/`requestAnimationFrame`, no icon,
+    animation, or illustration library.
 
 ## Important technical decisions/constraints
 
@@ -115,6 +131,7 @@ sweep, animated count-up stat reveals.
 
 ## Next task
 
-Nothing is currently blocking or in progress. The two most recently requested changes (cyberpunk/
-HUD redesign, Ollama opt-in toggle) are complete, committed, and pushed to `main`. No next task has
-been defined yet — check with the user for what's next.
+Nothing is currently blocking or in progress. The most recently requested change (Crystal Arcade
+glossy/JRPG visual redesign, replacing the cyberpunk/HUD theme, with an original mascot) is
+complete, committed, and pushed to `main`. No next task has been defined yet — check with the user
+for what's next.
