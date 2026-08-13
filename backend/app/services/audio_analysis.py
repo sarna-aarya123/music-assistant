@@ -92,6 +92,35 @@ def _low_end_ratio(spec_mag: np.ndarray, freqs: np.ndarray) -> float:
     return round(low_energy / total, 3)
 
 
+def _spectral_features(y: np.ndarray, sr: int) -> dict:
+    """Key/brightness/rolloff/low-end-ratio, all derived from one shared magnitude spectrogram.
+
+    Scoped in its own function rather than inline in `_extract` so the STFT and its derived arrays
+    (the biggest allocation in the whole analysis) are released — via CPython dropping this frame's
+    locals — the instant this returns, instead of sitting alive as `_extract`'s own locals for the
+    rest of that function's execution (including through the onset-detection pass after this).
+    """
+    stft = np.abs(librosa.stft(y))
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=(stft.shape[0] - 1) * 2)
+
+    # chroma_stft's default S is a *power* spectrogram (magnitude**2); centroid/rolloff default to
+    # magnitude (power=1) — squaring here is a cheap elementwise op on an array we already have,
+    # far cheaper than re-running librosa.stft a second time.
+    chroma = librosa.feature.chroma_stft(y=y, sr=sr, S=stft**2)
+    key = _estimate_key(chroma.mean(axis=1))
+
+    brightness_hz = round(float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, S=stft))), 1)
+    rolloff_hz = round(float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, S=stft))), 1)
+    low_end_ratio = _low_end_ratio(stft, freqs)
+
+    return {
+        "key": key,
+        "brightness_hz": brightness_hz,
+        "rolloff_hz": rolloff_hz,
+        "low_end_ratio": low_end_ratio,
+    }
+
+
 def _extract(file_path: Path) -> dict:
     """Deterministic feature extraction with librosa alone — no LLM involved."""
     # Cheap header/metadata probe before the full decode below — catches an oversized track before
@@ -145,21 +174,20 @@ def _extract(file_path: Path) -> dict:
             "onset_density": 0.0,
         }
 
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    # `beat_track` and `onset_detect` each independently build an onset-strength envelope from
+    # scratch by default (their own internal mel-spectrogram pass — a full spectral transform, not
+    # a cheap step) — computing it once here and passing it to both via `onset_envelope=` removes
+    # one of those two passes entirely. Numerically identical to before: both default to this exact
+    # computation with the same `hop_length`, so this only deduplicates work, it doesn't change it.
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+
+    tempo, _ = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
     bpm = float(np.asarray(tempo).reshape(-1)[0]) if np.asarray(tempo).size else 0.0
 
-    # Compute the magnitude spectrogram once and hand it to every feature function that accepts an
-    # `S=` argument, instead of letting each one (chroma_stft, spectral_centroid, spectral_rolloff)
-    # silently recompute its own full STFT internally. The FFT pass itself is the single biggest
-    # allocation/CPU cost in this function — this cuts it from 4 full passes down to 1.
-    stft = np.abs(librosa.stft(y))
-    freqs = librosa.fft_frequencies(sr=sr, n_fft=(stft.shape[0] - 1) * 2)
-
-    # chroma_stft's default S is a *power* spectrogram (magnitude**2); centroid/rolloff default to
-    # magnitude (power=1) — squaring here is a cheap elementwise op on an array we already have,
-    # far cheaper than re-running librosa.stft a second time.
-    chroma = librosa.feature.chroma_stft(y=y, sr=sr, S=stft**2)
-    key = _estimate_key(chroma.mean(axis=1))
+    # The STFT-derived features (key/brightness/rolloff/low-end) live in their own function so
+    # their arrays — the single biggest allocation in this whole analysis — are freed the moment
+    # that call returns, rather than lingering as live locals here through the rest of `_extract`.
+    spectral = _spectral_features(y, sr)
 
     rms = librosa.feature.rms(y=y)[0]
     rms_mean = float(np.mean(rms))
@@ -168,24 +196,21 @@ def _extract(file_path: Path) -> dict:
     peak = float(np.max(np.abs(y)))
     dynamic_range_db = round(20 * math.log10(peak / rms_mean), 1) if rms_mean > 0 and peak > 0 else 0.0
 
-    brightness_hz = round(float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, S=stft))), 1)
-    rolloff_hz = round(float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, S=stft))), 1)
     zero_crossing_rate = round(float(np.mean(librosa.feature.zero_crossing_rate(y=y))), 4)
-    low_end_ratio = _low_end_ratio(stft, freqs)
 
-    onsets = librosa.onset.onset_detect(y=y, sr=sr, units="time")
+    onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, units="time")
     onset_density = round(len(onsets) / duration_sec, 2) if duration_sec > 0 else 0.0
 
     return {
         "duration_sec": duration_sec,
         "bpm": round(bpm, 1),
-        "key": key,
+        "key": spectral["key"],
         "rms_db": rms_db,
-        "brightness_hz": brightness_hz,
-        "rolloff_hz": rolloff_hz,
+        "brightness_hz": spectral["brightness_hz"],
+        "rolloff_hz": spectral["rolloff_hz"],
         "zero_crossing_rate": zero_crossing_rate,
         "dynamic_range_db": dynamic_range_db,
-        "low_end_ratio": low_end_ratio,
+        "low_end_ratio": spectral["low_end_ratio"],
         "onset_density": onset_density,
     }
 
