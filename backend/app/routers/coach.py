@@ -1,5 +1,7 @@
 import uuid
+from pathlib import Path
 
+import anyio
 from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.core.config import settings
@@ -18,6 +20,22 @@ _ALLOWED_EXTENSIONS = (".wav", ".mp3", ".m4a", ".flac", ".aiff")
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB, per docs/FEATURE_COACH.md
 
 
+def _write_upload(file: UploadFile, dest: Path, max_bytes: int) -> None:
+    """Synchronous, blocking file write — run via `anyio.to_thread.run_sync` by the caller so a
+    large upload's disk I/O doesn't block the event loop any more than the analysis pass does."""
+    size = 0
+    with dest.open("wb") as f:
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > max_bytes:
+                f.close()
+                dest.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=413, detail=f"File exceeds the {max_bytes // (1024 * 1024)}MB upload limit."
+                )
+            f.write(chunk)
+
+
 @router.post("/upload", response_model=CoachUploadResponse)
 async def upload(file: UploadFile):
     if not file.filename.lower().endswith(_ALLOWED_EXTENSIONS):
@@ -28,15 +46,7 @@ async def upload(file: UploadFile):
 
     track_id = str(uuid.uuid4())
     dest = settings.upload_dir / f"{track_id}_{file.filename}"
-    size = 0
-    with dest.open("wb") as f:
-        while chunk := file.file.read(1024 * 1024):
-            size += len(chunk)
-            if size > _MAX_UPLOAD_BYTES:
-                f.close()
-                dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="File exceeds the 50MB upload limit.")
-            f.write(chunk)
+    await anyio.to_thread.run_sync(_write_upload, file, dest, _MAX_UPLOAD_BYTES)
 
     try:
         features = await audio_analysis.extract_features(dest)
