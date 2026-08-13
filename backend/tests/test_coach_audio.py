@@ -1,5 +1,6 @@
-"""Coverage for the low-memory audio analysis changes (fixed sample rate + duration cap) and the
-event-loop-blocking fix (thread offload for the synchronous librosa/file-write work).
+"""Coverage for the low-memory audio analysis changes (fixed sample rate + duration cap), the
+event-loop-blocking fix (thread offload for the synchronous librosa/file-write work), and the
+peak-memory refactor (shared onset envelope + scoped `_spectral_features` helper).
 
 What this file checks:
 1. A normal short track still analyzes correctly and the Coach response contract is unchanged.
@@ -8,6 +9,10 @@ What this file checks:
 4. A concurrent request (e.g. Render's own /health probe) is still served promptly while a slow
    analysis is in flight on the same process — regression coverage for the health-check-timeout
    bug caused by running blocking librosa work directly on the event loop.
+5. The scoped `_spectral_features` helper returns the expected shape/ranges on its own.
+6. Sharing one `onset_envelope` between `beat_track` and `onset_detect` produces numerically the
+   same `bpm`/`onset_density` as each function computing its own envelope independently — proving
+   the dedup is a pure deduplication, not an approximation that changed the analysis.
 """
 
 import asyncio
@@ -16,6 +21,7 @@ import time
 import wave
 
 import httpx
+import librosa
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -27,6 +33,22 @@ from app.core.config import settings
 def _make_wav_bytes(duration_sec: float, sr: int = 44100, freq: float = 440.0) -> bytes:
     t = np.linspace(0, duration_sec, int(sr * duration_sec), endpoint=False)
     audio = (0.3 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+    pcm16 = (audio * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(pcm16.tobytes())
+    return buf.getvalue()
+
+
+def _make_pulsed_wav_bytes(duration_sec: float, sr: int = 44100, pulse_hz: float = 4.0) -> bytes:
+    """A gated tone with clear percussive-like onsets, so onset/beat detection has something real
+    to find (a plain steady sine wave often yields zero onsets, which is a weak equivalence test)."""
+    t = np.linspace(0, duration_sec, int(sr * duration_sec), endpoint=False)
+    gate = (np.sin(2 * np.pi * pulse_hz * t) > 0).astype(np.float32)
+    audio = (0.4 * gate * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
     pcm16 = (audio * 32767).astype(np.int16)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -161,3 +183,45 @@ def test_health_stays_responsive_during_slow_audio_analysis(client, monkeypatch)
     # answered until it finished (~1.5s). A generous margin below that proves it wasn't blocked.
     assert health_elapsed < _SLOW_SECONDS / 2
     assert upload_res.status_code == 200
+
+
+def test_spectral_features_helper_returns_expected_shape(tmp_path):
+    from app.services.audio_analysis import _spectral_features
+
+    wav_path = tmp_path / "tone.wav"
+    wav_path.write_bytes(_make_wav_bytes(duration_sec=2.0, sr=44100, freq=440.0))
+    y, sr = librosa.load(str(wav_path), sr=22050, mono=True)
+
+    result = _spectral_features(y, sr)
+
+    assert set(result) == {"key", "brightness_hz", "rolloff_hz", "low_end_ratio"}
+    assert result["key"] != ""
+    assert result["brightness_hz"] >= 0.0
+    assert result["rolloff_hz"] >= 0.0
+    assert 0.0 <= result["low_end_ratio"] <= 1.0
+
+
+def test_shared_onset_envelope_matches_independently_computed_envelopes(tmp_path):
+    """The dedup in `_extract` (one `onset_envelope=` shared between `beat_track` and
+    `onset_detect`) must produce the same bpm/onset_density as each function computing its own
+    envelope independently — confirms this is a pure deduplication, not a behavior change."""
+    from app.services.audio_analysis import _extract
+
+    wav_path = tmp_path / "pulsed.wav"
+    wav_path.write_bytes(_make_pulsed_wav_bytes(duration_sec=4.0))
+
+    result = _extract(wav_path)
+
+    # Recompute the "naive" way — each function builds its own onset envelope, exactly how this
+    # code worked before the dedup — at the same fixed decode rate `_extract` uses internally.
+    y, sr = librosa.load(str(wav_path), sr=22050, mono=True)
+    duration_sec = round(float(librosa.get_duration(y=y, sr=sr)), 2)
+
+    tempo_naive, _ = librosa.beat.beat_track(y=y, sr=sr)
+    bpm_naive = round(float(np.asarray(tempo_naive).reshape(-1)[0]), 1)
+
+    onsets_naive = librosa.onset.onset_detect(y=y, sr=sr, units="time")
+    onset_density_naive = round(len(onsets_naive) / duration_sec, 2) if duration_sec > 0 else 0.0
+
+    assert result["bpm"] == pytest.approx(bpm_naive, abs=0.05)
+    assert result["onset_density"] == pytest.approx(onset_density_naive, abs=0.02)
