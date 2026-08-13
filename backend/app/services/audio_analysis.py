@@ -13,6 +13,7 @@ same "kept but disconnected" treatment of the underlying Ollama client.
 import math
 from pathlib import Path
 
+import anyio
 import librosa
 import numpy as np
 
@@ -190,7 +191,11 @@ def _extract(file_path: Path) -> dict:
 
 
 async def extract_features(file_path: Path) -> dict:
-    return _extract(file_path)
+    # `_extract` is synchronous, CPU-bound librosa work (beat tracking, STFT, chroma, onsets) — run
+    # it in a worker thread rather than directly on the event loop. Without this, a single upload's
+    # analysis blocks every other coroutine on this process, including Render's own /health probe,
+    # for the whole duration of the analysis (several seconds on a slow/shared instance CPU).
+    return await anyio.to_thread.run_sync(_extract, file_path)
 
 
 def _describe_features(features: TrackFeatures, duration_sec: float) -> tuple[list[str], list[str]]:
@@ -234,7 +239,7 @@ def _describe_features(features: TrackFeatures, duration_sec: float) -> tuple[li
 
 
 async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResponse:
-    raw = _extract(file_path)
+    raw = await anyio.to_thread.run_sync(_extract, file_path)
     features = TrackFeatures(
         bpm=raw["bpm"],
         key=raw["key"],
