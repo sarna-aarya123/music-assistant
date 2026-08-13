@@ -27,6 +27,16 @@ _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 _LOW_END_CUTOFF_HZ = 150.0
 
+# Fixed decode rate instead of the file's native sample rate — halves (or more) the size of every
+# array `_extract` allocates below, which matters on a 512MB Render instance. All the features we
+# read (BPM, key, RMS, spectral shape, onsets) are well below the 11kHz Nyquist this leaves.
+_TARGET_SR = 22050
+
+# Full-track analysis on a 512MB instance is memory-bound by track length, not just file size (a
+# small compressed file can still decode to a long, large PCM array) — cap duration directly.
+# 5 minutes covers virtually any single reference track/loop a producer would upload here.
+_MAX_DURATION_SEC = 300.0
+
 _CHAT_SYSTEM_PROMPT_TEMPLATE = (
     "You are an experienced music producer friend continuing a conversation about a specific "
     "track. Stay grounded in the extracted features and the feedback you already gave below — "
@@ -83,13 +93,38 @@ def _low_end_ratio(spec_mag: np.ndarray, freqs: np.ndarray) -> float:
 
 def _extract(file_path: Path) -> dict:
     """Deterministic feature extraction with librosa alone — no LLM involved."""
+    # Cheap header/metadata probe before the full decode below — catches an oversized track before
+    # we ever allocate a PCM array for it, rather than after. Best-effort: if the probe can't read
+    # this format's duration up front (rare — some containers require a real decode either way),
+    # fall through and let the full load below enforce nothing extra; the upload size cap in
+    # routers/coach.py is still in effect as a backstop.
     try:
-        y, sr = librosa.load(str(file_path), sr=None, mono=True)
+        probe_duration = librosa.get_duration(path=str(file_path))
+    except Exception:
+        probe_duration = None
+
+    if probe_duration is not None and probe_duration > _MAX_DURATION_SEC:
+        raise AudioLoadError(
+            f"Audio is too long ({probe_duration / 60:.1f} min) — max supported length is "
+            f"{_MAX_DURATION_SEC / 60:.0f} min."
+        )
+
+    try:
+        y, sr = librosa.load(str(file_path), sr=_TARGET_SR, mono=True)
     except Exception as exc:  # librosa/soundfile/audioread raise several distinct error types,
         # several of which (e.g. NoBackendError) have an empty str() — always name the exception
         # type so the message is actually useful.
         detail = str(exc) or type(exc).__name__
         raise AudioLoadError(f"Could not decode audio file — is it a valid audio file? ({detail})") from exc
+
+    if len(y) > 0 and (len(y) / sr) > _MAX_DURATION_SEC:
+        # Belt-and-suspenders: the header probe above misses some formats/containers. Catch those
+        # here too, after decode — later than ideal for memory, but still before the STFT/chroma/
+        # onset passes below, which are the next-biggest allocations.
+        raise AudioLoadError(
+            f"Audio is too long ({len(y) / sr / 60:.1f} min) — max supported length is "
+            f"{_MAX_DURATION_SEC / 60:.0f} min."
+        )
 
     duration_sec = round(float(librosa.get_duration(y=y, sr=sr)), 2)
 
@@ -112,10 +147,17 @@ def _extract(file_path: Path) -> dict:
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
     bpm = float(np.asarray(tempo).reshape(-1)[0]) if np.asarray(tempo).size else 0.0
 
+    # Compute the magnitude spectrogram once and hand it to every feature function that accepts an
+    # `S=` argument, instead of letting each one (chroma_stft, spectral_centroid, spectral_rolloff)
+    # silently recompute its own full STFT internally. The FFT pass itself is the single biggest
+    # allocation/CPU cost in this function — this cuts it from 4 full passes down to 1.
     stft = np.abs(librosa.stft(y))
     freqs = librosa.fft_frequencies(sr=sr, n_fft=(stft.shape[0] - 1) * 2)
 
-    chroma = librosa.feature.chroma_stft(y=y, sr=sr)
+    # chroma_stft's default S is a *power* spectrogram (magnitude**2); centroid/rolloff default to
+    # magnitude (power=1) — squaring here is a cheap elementwise op on an array we already have,
+    # far cheaper than re-running librosa.stft a second time.
+    chroma = librosa.feature.chroma_stft(y=y, sr=sr, S=stft**2)
     key = _estimate_key(chroma.mean(axis=1))
 
     rms = librosa.feature.rms(y=y)[0]
@@ -125,8 +167,8 @@ def _extract(file_path: Path) -> dict:
     peak = float(np.max(np.abs(y)))
     dynamic_range_db = round(20 * math.log10(peak / rms_mean), 1) if rms_mean > 0 and peak > 0 else 0.0
 
-    brightness_hz = round(float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))), 1)
-    rolloff_hz = round(float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr))), 1)
+    brightness_hz = round(float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, S=stft))), 1)
+    rolloff_hz = round(float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, S=stft))), 1)
     zero_crossing_rate = round(float(np.mean(librosa.feature.zero_crossing_rate(y=y))), 4)
     low_end_ratio = _low_end_ratio(stft, freqs)
 
