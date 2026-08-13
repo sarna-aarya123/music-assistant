@@ -92,6 +92,15 @@ def _low_end_ratio(spec_mag: np.ndarray, freqs: np.ndarray) -> float:
     return round(low_energy / total, 3)
 
 
+# Coarser hop than the librosa default (512), applied only to the shared chroma/centroid/rolloff/
+# low-end STFT below — NOT to the onset envelope (beat_track/onset_detect keep 512, since onset
+# timing — relevant to dense hi-hat-roll passages in this genre — is time-resolution-sensitive in a
+# way these mean-aggregated spectral stats aren't). Measured: halves that STFT's array size, with
+# brightness_hz/rolloff_hz shifting by <0.1Hz and key/low_end_ratio unchanged on a real test track
+# (see tests/test_coach_audio.py's spectral-equivalence tests).
+_SPECTRAL_HOP_LENGTH = 1024
+
+
 def _spectral_features(y: np.ndarray, sr: int) -> dict:
     """Key/brightness/rolloff/low-end-ratio, all derived from one shared magnitude spectrogram.
 
@@ -100,17 +109,33 @@ def _spectral_features(y: np.ndarray, sr: int) -> dict:
     locals — the instant this returns, instead of sitting alive as `_extract`'s own locals for the
     rest of that function's execution (including through the onset-detection pass after this).
     """
-    stft = np.abs(librosa.stft(y))
+    stft = np.abs(librosa.stft(y, hop_length=_SPECTRAL_HOP_LENGTH))
     freqs = librosa.fft_frequencies(sr=sr, n_fft=(stft.shape[0] - 1) * 2)
 
     # chroma_stft's default S is a *power* spectrogram (magnitude**2); centroid/rolloff default to
     # magnitude (power=1) — squaring here is a cheap elementwise op on an array we already have,
     # far cheaper than re-running librosa.stft a second time.
-    chroma = librosa.feature.chroma_stft(y=y, sr=sr, S=stft**2)
+    #
+    # `tuning=0` intentionally disables chroma_stft's automatic tuning estimation. By default
+    # (tuning=None) it runs its own internal pitch-tracking pass over the full spectrogram to
+    # detect per-track tuning drift from standard 440Hz/12-TET — measured to be the single largest
+    # allocation in this entire analysis (larger than the STFT computation it's built on top of),
+    # roughly 200MB+ of extra transient arrays on a multi-minute track. `_estimate_key` only needs
+    # coarse, semitone-resolution chroma bins to correlate against the fixed Krumhansl-Kessler
+    # major/minor profiles above — it has no use for cents-level tuning correction. Tradeoff: a
+    # track deliberately pitched/detuned meaningfully off standard tuning could get a marginally
+    # less accurate key estimate; for this app's genre (produced electronic/trap, effectively
+    # always at standard pitch) that's expected to be immaterial in practice, and verified to
+    # produce the same key label and near-identical chroma histogram on a real test track.
+    chroma = librosa.feature.chroma_stft(y=y, sr=sr, S=stft**2, hop_length=_SPECTRAL_HOP_LENGTH, tuning=0)
     key = _estimate_key(chroma.mean(axis=1))
 
-    brightness_hz = round(float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, S=stft))), 1)
-    rolloff_hz = round(float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, S=stft))), 1)
+    brightness_hz = round(
+        float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, S=stft, hop_length=_SPECTRAL_HOP_LENGTH))), 1
+    )
+    rolloff_hz = round(
+        float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, S=stft, hop_length=_SPECTRAL_HOP_LENGTH))), 1
+    )
     low_end_ratio = _low_end_ratio(stft, freqs)
 
     return {

@@ -1,6 +1,7 @@
 """Coverage for the low-memory audio analysis changes (fixed sample rate + duration cap), the
-event-loop-blocking fix (thread offload for the synchronous librosa/file-write work), and the
-peak-memory refactor (shared onset envelope + scoped `_spectral_features` helper).
+event-loop-blocking fix (thread offload for the synchronous librosa/file-write work), and the two
+rounds of peak-memory refactor (shared onset envelope + scoped `_spectral_features` helper, then
+`tuning=0` + coarser hop_length inside that helper).
 
 What this file checks:
 1. A normal short track still analyzes correctly and the Coach response contract is unchanged.
@@ -13,6 +14,11 @@ What this file checks:
 6. Sharing one `onset_envelope` between `beat_track` and `onset_detect` produces numerically the
    same `bpm`/`onset_density` as each function computing its own envelope independently — proving
    the dedup is a pure deduplication, not an approximation that changed the analysis.
+7. `_spectral_features`'s `tuning=0` + `hop_length=1024` change (the second peak-memory fix, which
+   removed chroma_stft's internal auto-tuning pass — the single largest allocation measured in the
+   whole pipeline) stays numerically close to the pre-optimization behavior (default tuning
+   estimation, hop_length=512) — same `key`, brightness/rolloff within a small tolerance.
+8. Key detection is sane on a clear single-pitch tone.
 """
 
 import asyncio
@@ -225,3 +231,45 @@ def test_shared_onset_envelope_matches_independently_computed_envelopes(tmp_path
 
     assert result["bpm"] == pytest.approx(bpm_naive, abs=0.05)
     assert result["onset_density"] == pytest.approx(onset_density_naive, abs=0.02)
+
+
+def test_spectral_features_close_to_pre_optimization_tuning_and_hop(tmp_path):
+    """`_spectral_features` now uses `tuning=0` + `hop_length=1024` (peak-memory fix — see the
+    comment on `_SPECTRAL_HOP_LENGTH`). Confirm this stays numerically close to the previous
+    behavior (chroma_stft's default automatic tuning estimation, hop_length=512) rather than having
+    silently changed what the Coach reports — `key` should match exactly, and the mean-aggregated
+    stats should be within a small tolerance."""
+    from app.services.audio_analysis import _estimate_key, _low_end_ratio, _spectral_features
+
+    wav_path = tmp_path / "mix.wav"
+    wav_path.write_bytes(_make_pulsed_wav_bytes(duration_sec=6.0))
+    y, sr = librosa.load(str(wav_path), sr=22050, mono=True)
+
+    result = _spectral_features(y, sr)
+
+    # Reference: the pre-optimization behavior — default tuning estimation, default hop_length.
+    stft_ref = np.abs(librosa.stft(y))
+    freqs_ref = librosa.fft_frequencies(sr=sr, n_fft=(stft_ref.shape[0] - 1) * 2)
+    chroma_ref = librosa.feature.chroma_stft(y=y, sr=sr, S=stft_ref**2)
+    key_ref = _estimate_key(chroma_ref.mean(axis=1))
+    brightness_ref = round(float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, S=stft_ref))), 1)
+    rolloff_ref = round(float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, S=stft_ref))), 1)
+    low_end_ref = _low_end_ratio(stft_ref, freqs_ref)
+
+    assert result["key"] == key_ref
+    assert result["brightness_hz"] == pytest.approx(brightness_ref, rel=0.02)
+    assert result["rolloff_hz"] == pytest.approx(rolloff_ref, rel=0.02)
+    assert result["low_end_ratio"] == pytest.approx(low_end_ref, abs=0.02)
+
+
+def test_key_detection_is_sane_on_a_clear_tone(tmp_path):
+    from app.services.audio_analysis import _extract
+
+    wav_path = tmp_path / "a440.wav"
+    wav_path.write_bytes(_make_wav_bytes(duration_sec=3.0, sr=44100, freq=440.0))
+
+    result = _extract(wav_path)
+
+    # A pure 440Hz tone's energy is concentrated in the "A" pitch class — the detected key should
+    # be rooted there regardless of major/minor (a single pitch can't disambiguate the third).
+    assert result["key"].startswith("A")
