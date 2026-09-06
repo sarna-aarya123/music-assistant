@@ -1,5 +1,4 @@
 import FeatureCard from "@/components/FeatureCard";
-import Mascot from "@/components/Mascot";
 
 function WaveformIcon() {
   return (
@@ -33,19 +32,16 @@ function TerminalIcon() {
 export default function HomePage() {
   return (
     <div>
-      <div className="hud-panel mb-10 flex flex-col items-center gap-6 p-8 text-center sm:flex-row sm:text-left">
-        <Mascot size={140} className="shrink-0" />
-        <div>
-          <div className="mb-2 font-mono text-xs uppercase tracking-[0.3em] text-accent2">
-            ✦ system online — local-first ✦
-          </div>
-          <h1 className="glitch-text mb-2 font-display text-4xl uppercase tracking-wide">
-            AI Music Assistant
-          </h1>
-          <p className="max-w-2xl text-muted">
-            Upload a beat, a MIDI file, or your lyrics and get simple feedback back in seconds.
-          </p>
+      <div className="hud-panel mb-10 p-8 text-center">
+        <div className="mb-2 font-mono text-xs uppercase tracking-[0.3em] text-accent2">
+          ✦ system online — local-first ✦
         </div>
+        <h1 className="glitch-text mb-2 font-display text-4xl uppercase tracking-wide">
+          AI Music Assistant
+        </h1>
+        <p className="mx-auto max-w-2xl text-muted">
+          Upload a beat, a MIDI file, or your lyrics and get simple feedback back in seconds.
+        </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

@@ -1,22 +1,24 @@
 import type { Config } from "tailwindcss";
 
-// Crystal Arcade visual identity: bright, glossy, JRPG-menu-inspired look — pastel gradient sky,
-// glass/crystal panels, rounded pill controls, candy-colored accents. Replaces the earlier dark
-// cyberpunk/HUD theme; existing class names (hud-panel, glitch-text, etc.) are kept as stable
-// hooks in globals.css so every page picks up the new look without per-component edits.
+// Neon Arcade visual identity: dark starfield space with soft ambient glow, glassy toon-outlined
+// panels (bold cel border + hard sticker shadow + neon bloom). Deliberately kept generic — no
+// game-specific background iconography (shapes/rings/etc.), just color, glow, and motion.
+// Palette: electric orange / teal / amber, on a dark violet-black background. Existing class names
+// (hud-panel, glitch-text, etc.) are kept as stable hooks in globals.css so every page picks up the
+// look without per-page edits.
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        background: "#f5f1ff",
-        surface: "#ffffff",
-        border: "#d9c9ff",
-        ink: "#241b4d",
-        accent: "#ff5cad",
-        accent2: "#33c7ff",
-        gold: "#ffcf40",
-        muted: "#6a628f",
+        background: "#0a0716",
+        surface: "#160f2c",
+        border: "#4b3b7d",
+        ink: "#f3eeff",
+        accent: "#ff5a36",
+        accent2: "#2dd4bf",
+        gold: "#ffb020",
+        muted: "#a79bd9",
         success: "#2bd6a8",
         warning: "#ff9d3d",
       },
@@ -35,10 +37,13 @@ const config: Config = {
         full: "9999px",
       },
       boxShadow: {
-        glow: "0 10px 30px -6px rgba(255, 92, 173, 0.45)",
-        "glow-cyan": "0 10px 30px -6px rgba(51, 199, 255, 0.45)",
-        "glow-success": "0 10px 26px -6px rgba(43, 214, 168, 0.5)",
-        glass: "0 8px 32px -8px rgba(120, 90, 220, 0.25), inset 0 1px 0 rgba(255,255,255,0.9)",
+        glow: "0 0 32px 2px rgba(255, 90, 54, 0.5)",
+        "glow-cyan": "0 0 32px 2px rgba(45, 212, 191, 0.5)",
+        "glow-success": "0 0 26px 1px rgba(43, 214, 168, 0.55)",
+        glass: "0 8px 32px -8px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.06)",
+        // "Toon" sticker shadow: a hard, unblurred offset shadow instead of a soft blur — cartoon
+        // cutout look, layered on top of the neon glow rather than replacing it.
+        toon: "4px 4px 0 0 rgba(0,0,0,0.45)",
       },
       keyframes: {
         "scan-sweep": {
@@ -61,21 +66,22 @@ const config: Config = {
           "0%": { opacity: "0", transform: "translateY(10px) scale(0.97)" },
           "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
         },
-        blink: {
-          "0%, 92%, 100%": { transform: "scaleY(1)" },
-          "96%": { transform: "scaleY(0.1)" },
-        },
-        "tail-sway": {
-          "0%, 100%": { transform: "rotate(-8deg)" },
-          "50%": { transform: "rotate(10deg)" },
-        },
         twinkle: {
           "0%, 100%": { opacity: "0.25", transform: "scale(0.8)" },
           "50%": { opacity: "1", transform: "scale(1.15)" },
         },
-        bob: {
-          "0%, 100%": { transform: "translateY(0)" },
-          "50%": { transform: "translateY(-8px)" },
+        "spin-slow": {
+          "0%": { transform: "rotate(0deg)" },
+          "100%": { transform: "rotate(360deg)" },
+        },
+        wiggle: {
+          "0%, 100%": { transform: "rotate(0deg) scale(1)" },
+          "25%": { transform: "rotate(-10deg) scale(1.06)" },
+          "75%": { transform: "rotate(10deg) scale(1.06)" },
+        },
+        "glow-pulse": {
+          "0%, 100%": { filter: "brightness(1) saturate(1)" },
+          "50%": { filter: "brightness(1.35) saturate(1.3)" },
         },
       },
       animation: {
@@ -85,10 +91,11 @@ const config: Config = {
         "float-slow": "float-y 7s ease-in-out infinite",
         "float-med": "float-y 5s ease-in-out infinite",
         "pop-in": "pop-in 0.45s cubic-bezier(0.22,1,0.36,1) both",
-        blink: "blink 4.5s ease-in-out infinite",
-        "tail-sway": "tail-sway 2.4s ease-in-out infinite",
         twinkle: "twinkle 2.6s ease-in-out infinite",
-        bob: "bob 3.2s ease-in-out infinite",
+        "spin-slow": "spin-slow 14s linear infinite",
+        "spin-slower": "spin-slow 26s linear infinite",
+        wiggle: "wiggle 0.6s ease-in-out infinite",
+        "glow-pulse": "glow-pulse 2.4s ease-in-out infinite",
       },
     },
   },
