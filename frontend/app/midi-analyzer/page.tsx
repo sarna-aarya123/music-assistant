@@ -9,6 +9,7 @@ import {
   type MidiHistoryEntry,
 } from "@/lib/api";
 import { useCountUp } from "@/lib/useCountUp";
+import { useSlowLoadHint } from "@/lib/useSlowLoadHint";
 
 export default function MidiAnalyzerPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -16,6 +17,7 @@ export default function MidiAnalyzerPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<MidiHistoryEntry[]>([]);
+  const slow = useSlowLoadHint(loading);
 
   useEffect(() => {
     getMidiHistory()
@@ -64,6 +66,11 @@ export default function MidiAnalyzerPage() {
         >
           {loading ? "Analyzing..." : "Analyze"}
         </button>
+        {slow && (
+          <p className="mt-3 font-mono text-xs text-muted">
+            Still working — the free-tier server can take up to a minute to wake up if it's been idle.
+          </p>
+        )}
       </div>
 
       {error && (

@@ -8,6 +8,7 @@ import {
   type LyricsAnalyzeResponse,
   type LyricsHistoryEntry,
 } from "@/lib/api";
+import { useSlowLoadHint } from "@/lib/useSlowLoadHint";
 
 export default function LyricsPage() {
   const [lyrics, setLyrics] = useState("");
@@ -16,6 +17,7 @@ export default function LyricsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<LyricsHistoryEntry[]>([]);
+  const slow = useSlowLoadHint(loading);
 
   useEffect(() => {
     getLyricsHistory()
@@ -72,6 +74,11 @@ export default function LyricsPage() {
         >
           {loading ? "Analyzing..." : "Get Feedback"}
         </button>
+        {slow && (
+          <p className="mt-3 font-mono text-xs text-muted">
+            Still working — the free-tier server can take up to a minute to wake up if it's been idle.
+          </p>
+        )}
       </div>
 
       {error && (
