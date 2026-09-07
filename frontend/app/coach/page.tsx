@@ -10,6 +10,7 @@ import {
   type CoachHistoryEntry,
 } from "@/lib/api";
 import { useCountUp } from "@/lib/useCountUp";
+import { useSlowLoadHint } from "@/lib/useSlowLoadHint";
 
 export default function CoachPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -17,6 +18,7 @@ export default function CoachPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<"upload" | "feedback" | null>(null);
   const [history, setHistory] = useState<CoachHistoryEntry[]>([]);
+  const slow = useSlowLoadHint(loading !== null);
 
   useEffect(() => {
     getCoachHistory()
@@ -71,6 +73,11 @@ export default function CoachPage() {
         >
           {loading === "upload" || loading === "feedback" ? "Analyzing..." : "Upload & Analyze"}
         </button>
+        {slow && (
+          <p className="mt-3 font-mono text-xs text-muted">
+            Still working — the free-tier server can take up to a minute to wake up if it's been idle.
+          </p>
+        )}
       </div>
 
       {error && (
