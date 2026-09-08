@@ -2,9 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Colorways — each is just a set of CSS variables (R G B, space-separated so Tailwind's
+   `rgb(var(...) / <alpha-value>)` pattern in tailwind.config.ts can apply opacity modifiers like
+   `bg-accent/10`). Switching `data-theme` on <html> (see components/ThemeSwitcher.tsx) re-points
+   every accent color, glow, gradient, and panel border at once — no per-component changes needed,
+   since every rule below reads these variables instead of a fixed hex. The base background/
+   surface/border/ink/muted tones stay the same across themes; only the three accent colors shift. */
+:root,
+[data-theme="solar"] {
+  --color-background: 10 7 22;
+  --color-surface: 22 15 44;
+  --color-border: 75 59 125;
+  --color-ink: 243 238 255;
+  --color-muted: 167 155 217;
+  --color-accent: 255 90 54; /* orange */
+  --color-accent2: 45 212 191; /* teal */
+  --color-gold: 255 176 32; /* amber */
+}
+
+[data-theme="aurora"] {
+  --color-accent: 255 92 173; /* pink */
+  --color-accent2: 139 92 246; /* violet */
+  --color-gold: 51 199 255; /* cyan */
+}
+
+[data-theme="toxic"] {
+  --color-accent: 255 47 214; /* magenta */
+  --color-accent2: 124 255 61; /* acid green */
+  --color-gold: 51 186 255; /* electric blue */
+}
+
+[data-theme="inferno"] {
+  --color-accent: 255 59 59; /* red */
+  --color-accent2: 255 138 0; /* orange */
+  --color-gold: 255 210 63; /* gold */
+}
+
 body {
-  color: #f3eeff;
-  background-color: #0a0716;
+  color: rgb(var(--color-ink));
+  background-color: rgb(var(--color-background));
   background-image: radial-gradient(ellipse at 20% 0%, #241546 0%, transparent 55%),
     radial-gradient(ellipse at 85% 15%, #1a2a4a 0%, transparent 50%),
     radial-gradient(ellipse at 50% 100%, #2a1030 0%, transparent 60%),
@@ -39,7 +75,8 @@ body {
   }
 }
 
-/* Soft blurred color blobs — a nebula haze for atmosphere, replacing the old faint grid. */
+/* Soft blurred color blobs — a nebula haze for atmosphere. Theme-driven: re-tints automatically
+   with whichever colorway is active since it reads the same accent/accent2/gold variables. */
 .hud-grid {
   position: fixed;
   inset: 0;
@@ -48,9 +85,9 @@ body {
   opacity: 0.5;
   filter: blur(60px);
   background-image:
-    radial-gradient(circle at 15% 20%, rgba(255, 90, 54, 0.18), transparent 40%),
-    radial-gradient(circle at 85% 30%, rgba(45, 212, 191, 0.16), transparent 40%),
-    radial-gradient(circle at 50% 90%, rgba(255, 176, 32, 0.1), transparent 45%);
+    radial-gradient(circle at 15% 20%, rgb(var(--color-accent) / 0.18), transparent 40%),
+    radial-gradient(circle at 85% 30%, rgb(var(--color-accent2) / 0.16), transparent 40%),
+    radial-gradient(circle at 50% 90%, rgb(var(--color-gold) / 0.1), transparent 45%);
 }
 
 body > * {
@@ -67,9 +104,9 @@ body > * {
   font-family: var(--font-mono), monospace;
 }
 
-/* Neon toon panel: the one shared "card" look used across every feature page. Dark glass, bold
-   cel-style outline, a hard offset "sticker" shadow layered under the soft neon glow, gentle
-   pop-in on mount, and a slow idle glow breathing so the page never sits perfectly still. */
+/* Neon toon panel: the one shared "card" look used across the app. Dark glass, bold cel-style
+   outline, a hard offset "sticker" shadow layered under the soft neon glow, gentle pop-in on
+   mount, and a slow idle glow breathing so the page never sits perfectly still. */
 .hud-panel {
   position: relative;
   border-radius: 22px !important;
@@ -78,7 +115,7 @@ body > * {
   backdrop-filter: blur(14px);
   box-shadow:
     5px 5px 0 0 rgba(0, 0, 0, 0.4),
-    0 0 28px -6px rgba(120, 90, 220, 0.45),
+    0 0 28px -6px rgb(var(--color-accent2) / 0.4),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
   transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
   animation: pop-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both, panel-breathe 5s ease-in-out infinite;
@@ -88,13 +125,13 @@ body > * {
   0%, 100% {
     box-shadow:
       5px 5px 0 0 rgba(0, 0, 0, 0.4),
-      0 0 28px -6px rgba(120, 90, 220, 0.45),
+      0 0 28px -6px rgb(var(--color-accent2) / 0.4),
       inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
   50% {
     box-shadow:
       5px 5px 0 0 rgba(0, 0, 0, 0.4),
-      0 0 40px -4px rgba(255, 90, 54, 0.4),
+      0 0 40px -4px rgb(var(--color-accent) / 0.4),
       inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 }
@@ -103,7 +140,7 @@ body > * {
   transform: translate(-2px, -5px);
   box-shadow:
     7px 9px 0 0 rgba(0, 0, 0, 0.45),
-    0 0 44px -4px rgba(255, 90, 54, 0.55),
+    0 0 44px -4px rgb(var(--color-accent) / 0.55),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
@@ -131,7 +168,13 @@ body > * {
   pointer-events: none;
   border-radius: inherit;
   border: 2.5px solid transparent;
-  background: linear-gradient(135deg, #ff5a36, #2dd4bf, #ffb020, #ff5a36) border-box;
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-accent)),
+    rgb(var(--color-accent2)),
+    rgb(var(--color-gold)),
+    rgb(var(--color-accent))
+  ) border-box;
   -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -161,11 +204,11 @@ body > * {
    (without .hud-panel) — form fields, badges, buttons all pick this up for free. */
 .border-border {
   border-radius: 16px;
-  border-color: rgba(120, 100, 190, 0.5) !important;
+  border-color: rgb(var(--color-border) / 0.5) !important;
 }
 
 .bg-surface {
-  background-color: rgba(22, 15, 44, 0.65) !important;
+  background-color: rgb(var(--color-surface) / 0.65) !important;
   backdrop-filter: blur(10px);
 }
 
@@ -180,7 +223,7 @@ body > * {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.35),
     3px 3px 0 0 rgba(0, 0, 0, 0.4),
-    0 0 22px -4px rgba(255, 90, 54, 0.7);
+    0 0 22px -4px rgb(var(--color-accent) / 0.7);
   outline: 2px solid rgba(255, 255, 255, 0.35);
   outline-offset: -2px;
 }
@@ -200,7 +243,7 @@ body > * {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
     4px 6px 0 0 rgba(0, 0, 0, 0.45),
-    0 0 30px -2px rgba(255, 90, 54, 0.85);
+    0 0 30px -2px rgb(var(--color-accent) / 0.85);
 }
 
 .bg-accent:active,
@@ -222,11 +265,11 @@ body > * {
 .glitch-text {
   background-image: linear-gradient(
     100deg,
-    #f3eeff 30%,
-    #ff5a36 42%,
-    #ffb020 50%,
-    #2dd4bf 58%,
-    #f3eeff 70%
+    rgb(var(--color-ink)) 30%,
+    rgb(var(--color-accent)) 42%,
+    rgb(var(--color-gold)) 50%,
+    rgb(var(--color-accent2)) 58%,
+    rgb(var(--color-ink)) 70%
   );
   background-size: 250% 100%;
   -webkit-background-clip: text;

@@ -1,10 +1,5 @@
 import Link from "next/link";
-
-const links = [
-  { href: "/coach", label: "AI Coach" },
-  { href: "/midi-analyzer", label: "MIDI Analyzer" },
-  { href: "/lyrics", label: "Lyric Lab" },
-];
+import ThemeSwitcher from "@/components/ThemeSwitcher";
 
 export default function NavBar() {
   return (
@@ -15,17 +10,7 @@ export default function NavBar() {
             AI Music Assistant
           </span>
         </Link>
-        <nav className="flex flex-wrap justify-center gap-1 font-mono text-xs uppercase tracking-widest text-muted">
-          {links.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="rounded-full px-2.5 py-1.5 transition hover:bg-accent2/15 hover:text-accent2 sm:px-3"
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        <ThemeSwitcher />
       </div>
     </header>
   );

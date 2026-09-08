@@ -197,6 +197,8 @@ def _extract(file_path: Path) -> dict:
             "dynamic_range_db": 0.0,
             "low_end_ratio": 0.0,
             "onset_density": 0.0,
+            "onset_times": [],
+            "beat_times": [],
         }
 
     # `beat_track` and `onset_detect` each independently build an onset-strength envelope from
@@ -206,8 +208,11 @@ def _extract(file_path: Path) -> dict:
     # computation with the same `hop_length`, so this only deduplicates work, it doesn't change it.
     onset_env = librosa.onset.onset_strength(y=y, sr=sr)
 
-    tempo, _ = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
+    tempo, beat_frames = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
     bpm = float(np.asarray(tempo).reshape(-1)[0]) if np.asarray(tempo).size else 0.0
+    # Beat timestamps (not just the aggregate BPM) — used by the frontend to draw a beat grid over
+    # the waveform. Tiny payload (a few hundred floats even for a long track), no memory concern.
+    beat_times = [round(float(t), 3) for t in librosa.frames_to_time(beat_frames, sr=sr)]
 
     # The STFT-derived features (key/brightness/rolloff/low-end) live in their own function so
     # their arrays — the single biggest allocation in this whole analysis — are freed the moment
@@ -225,6 +230,7 @@ def _extract(file_path: Path) -> dict:
 
     onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, units="time")
     onset_density = round(len(onsets) / duration_sec, 2) if duration_sec > 0 else 0.0
+    onset_times = [round(float(t), 3) for t in onsets]
 
     return {
         "duration_sec": duration_sec,
@@ -237,6 +243,8 @@ def _extract(file_path: Path) -> dict:
         "dynamic_range_db": dynamic_range_db,
         "low_end_ratio": spectral["low_end_ratio"],
         "onset_density": onset_density,
+        "onset_times": onset_times,
+        "beat_times": beat_times,
     }
 
 
@@ -333,6 +341,8 @@ async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResp
         dynamic_range_db=raw["dynamic_range_db"],
         low_end_ratio=raw["low_end_ratio"],
         onset_density=raw["onset_density"],
+        onset_times=raw["onset_times"],
+        beat_times=raw["beat_times"],
     )
 
     strengths, improvements = _describe_features(features, raw["duration_sec"])

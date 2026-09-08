@@ -128,6 +128,8 @@ export type TrackFeatures = {
   dynamic_range_db: number;
   low_end_ratio: number;
   onset_density: number;
+  onset_times: number[];
+  beat_times: number[];
 };
 
 export type CoachFeedbackResponse = {
