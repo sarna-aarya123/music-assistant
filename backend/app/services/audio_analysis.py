@@ -240,12 +240,45 @@ def _extract(file_path: Path) -> dict:
     }
 
 
+def _probe_duration(file_path: Path) -> float:
+    """Cheap duration read — from the file header where possible, no full PCM decode or analysis.
+
+    Used by the upload endpoint, which only needs a duration for its response. Deliberately does
+    NOT call `_extract()` — the full feature pipeline (decode + beat-track + onset-detect + STFT/
+    chroma/spectral) runs exactly once, later, when `/feedback` is actually requested. Running it
+    here too would silently redo the entire analysis a second time for every single upload, which
+    on a slow/shared instance CPU is the difference between one ~60-90s pass and two.
+    """
+    try:
+        duration = librosa.get_duration(path=str(file_path))
+    except Exception:
+        duration = None
+
+    if duration is None:
+        # Rare: some containers don't expose duration via header alone. Fall back to a real decode
+        # just to validate + measure it — same error handling `_extract`'s own decode uses.
+        try:
+            y, sr = librosa.load(str(file_path), sr=_TARGET_SR, mono=True)
+        except Exception as exc:
+            detail = str(exc) or type(exc).__name__
+            raise AudioLoadError(f"Could not decode audio file — is it a valid audio file? ({detail})") from exc
+        duration = librosa.get_duration(y=y, sr=sr)
+
+    duration = round(float(duration), 2)
+    if duration > _MAX_DURATION_SEC:
+        raise AudioLoadError(
+            f"Audio is too long ({duration / 60:.1f} min) — max supported length is "
+            f"{_MAX_DURATION_SEC / 60:.0f} min."
+        )
+    return duration
+
+
 async def extract_features(file_path: Path) -> dict:
-    # `_extract` is synchronous, CPU-bound librosa work (beat tracking, STFT, chroma, onsets) — run
-    # it in a worker thread rather than directly on the event loop. Without this, a single upload's
-    # analysis blocks every other coroutine on this process, including Render's own /health probe,
-    # for the whole duration of the analysis (several seconds on a slow/shared instance CPU).
-    return await anyio.to_thread.run_sync(_extract, file_path)
+    # Offloaded to a thread since the rare full-decode fallback in `_probe_duration` is CPU-bound;
+    # the common (header-readable) path is fast enough that this is mostly just consistency with
+    # `generate_feedback`'s own thread-offload below.
+    duration_sec = await anyio.to_thread.run_sync(_probe_duration, file_path)
+    return {"duration_sec": duration_sec}
 
 
 def _describe_features(features: TrackFeatures, duration_sec: float) -> tuple[list[str], list[str]]:
