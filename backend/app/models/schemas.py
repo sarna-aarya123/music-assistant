@@ -117,6 +117,10 @@ class TrackFeatures(BaseModel):
     dynamic_range_db: float = 0.0
     low_end_ratio: float = 0.0
     onset_density: float = 0.0
+    # Timestamps (seconds), not just aggregates — drives the waveform explorer's beat grid/onset
+    # markers on the frontend. Defaulted to [] for the same history-backcompat reason as above.
+    onset_times: list[float] = []
+    beat_times: list[float] = []
 
 
 class CoachFeedbackResponse(BaseModel):

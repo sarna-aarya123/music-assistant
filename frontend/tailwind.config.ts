@@ -3,22 +3,29 @@ import type { Config } from "tailwindcss";
 // Neon Arcade visual identity: dark starfield space with soft ambient glow, glassy toon-outlined
 // panels (bold cel border + hard sticker shadow + neon bloom). Deliberately kept generic — no
 // game-specific background iconography (shapes/rings/etc.), just color, glow, and motion.
-// Palette: electric orange / teal / amber, on a dark violet-black background. Existing class names
-// (hud-panel, glitch-text, etc.) are kept as stable hooks in globals.css so every page picks up the
-// look without per-page edits.
+//
+// Colors resolve through CSS variables (defined per-theme in globals.css, keyed by
+// `[data-theme]` on <html>) rather than fixed hex — this is what makes the colorway switcher
+// (components/ThemeSwitcher.tsx) work: switching the attribute re-points every one of these at
+// once, everywhere they're used, with no per-component changes. The `rgb(var(...) / <alpha-value>)`
+// form is Tailwind's documented pattern for CSS-variable colors that still support opacity
+// modifiers (`bg-accent/10`, `border-accent/40`, etc., used throughout the app).
+const withOpacity = (variable: string) => `rgb(var(${variable}) / <alpha-value>)`;
+
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        background: "#0a0716",
-        surface: "#160f2c",
-        border: "#4b3b7d",
-        ink: "#f3eeff",
-        accent: "#ff5a36",
-        accent2: "#2dd4bf",
-        gold: "#ffb020",
-        muted: "#a79bd9",
+        background: withOpacity("--color-background"),
+        surface: withOpacity("--color-surface"),
+        border: withOpacity("--color-border"),
+        ink: withOpacity("--color-ink"),
+        accent: withOpacity("--color-accent"),
+        accent2: withOpacity("--color-accent2"),
+        gold: withOpacity("--color-gold"),
+        muted: withOpacity("--color-muted"),
+        // Semantic, not thematic — deliberately not part of the colorway system.
         success: "#2bd6a8",
         warning: "#ff9d3d",
       },
@@ -37,8 +44,8 @@ const config: Config = {
         full: "9999px",
       },
       boxShadow: {
-        glow: "0 0 32px 2px rgba(255, 90, 54, 0.5)",
-        "glow-cyan": "0 0 32px 2px rgba(45, 212, 191, 0.5)",
+        glow: "0 0 32px 2px rgb(var(--color-accent) / 0.5)",
+        "glow-cyan": "0 0 32px 2px rgb(var(--color-accent2) / 0.5)",
         "glow-success": "0 0 26px 1px rgba(43, 214, 168, 0.55)",
         glass: "0 8px 32px -8px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.06)",
         // "Toon" sticker shadow: a hard, unblurred offset shadow instead of a soft blur — cartoon

@@ -21,9 +21,23 @@ export const metadata: Metadata = {
   description: "Simple feedback for your beats, MIDI, and lyrics.",
 };
 
+// Runs before paint, straight in <head>, so a returning visitor's saved colorway applies
+// immediately instead of flashing the default theme for a frame — the standard no-FOUC pattern.
+const THEME_INIT_SCRIPT = `
+(function () {
+  try {
+    var t = localStorage.getItem("theme");
+    if (t) document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${displayFont.variable} ${monoFont.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-screen bg-background text-ink">
         <div aria-hidden className="hud-grid" />
         <div aria-hidden className="app-texture" />
