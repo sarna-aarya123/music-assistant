@@ -122,11 +122,10 @@ export default function SongMap({ energyCurve, segments, durationSec }: SongMapP
               ))}
             </div>
 
-            <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mb-3 grid grid-cols-3 gap-2">
               <MiniStat label="Loudness" value={`${selected.features.rms_db} dB`} />
               <MiniStat label="Brightness" value={`${Math.round(selected.features.brightness_hz)} Hz`} />
               <MiniStat label="Onset Density" value={`${selected.features.onset_density}/s`} />
-              <MiniStat label="Key" value={selected.features.key} />
             </div>
 
             <div className="flex-1 space-y-2 overflow-y-auto">

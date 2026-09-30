@@ -119,7 +119,7 @@ def test_upload_and_feedback_normal_audio_preserves_contract(client):
     assert isinstance(feedback_body["segments"], list)
     for seg in feedback_body["segments"]:
         assert set(seg) == {"start_sec", "end_sec", "mark_sec", "features", "notes"}
-        assert set(seg["features"]) == {"rms_db", "brightness_hz", "onset_density", "zero_crossing_rate", "key"}
+        assert set(seg["features"]) == {"rms_db", "brightness_hz", "onset_density", "zero_crossing_rate"}
 
     assert isinstance(feedback_body["strengths"], list) and feedback_body["strengths"]
     assert isinstance(feedback_body["improvements"], list) and feedback_body["improvements"]

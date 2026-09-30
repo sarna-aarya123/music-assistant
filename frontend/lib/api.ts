@@ -138,7 +138,6 @@ export type SegmentFeatures = {
   brightness_hz: number;
   onset_density: number;
   zero_crossing_rate: number;
-  key: string;
 };
 
 export type TrackSegment = {

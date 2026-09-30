@@ -116,41 +116,19 @@ export default function HomePage() {
           </div>
         )}
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <div className="hud-panel border border-border bg-surface p-4">
-            <h3 className="mb-2 font-mono text-xs uppercase tracking-widest text-accent2">Stats</h3>
-            <dl className="space-y-1">
-              <StatRow label="BPM" value={feedback.features.bpm} />
-              <StatRow label="Key" value={feedback.features.key} />
-              <StatRow label="Loudness" value={`${feedback.features.rms_db} dB`} />
-              <StatRow label="Brightness" value={`${Math.round(feedback.features.brightness_hz)} Hz`} />
-              <StatRow label="Rolloff" value={`${Math.round(feedback.features.rolloff_hz)} Hz`} />
-              <StatRow label="Zero-Crossing Rate" value={feedback.features.zero_crossing_rate} />
-              <StatRow label="Dynamic Range" value={`${feedback.features.dynamic_range_db} dB`} />
-              <StatRow label="Low-End Ratio" value={`${Math.round(feedback.features.low_end_ratio * 100)}%`} />
-              <StatRow label="Onset Density" value={`${feedback.features.onset_density}/s`} />
-            </dl>
-          </div>
-          <div className="hud-panel border border-border bg-surface p-4">
-            <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
-              Strengths
-            </h3>
-            <ul className="list-inside list-disc text-sm text-muted">
-              {feedback.strengths.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          </div>
-          <div className="hud-panel border border-border bg-surface p-4">
-            <h3 className="mb-1 font-mono text-xs uppercase tracking-widest text-accent2">
-              Improvements
-            </h3>
-            <ul className="list-inside list-disc text-sm text-muted">
-              {feedback.improvements.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          </div>
+        <div className="mt-4 hud-panel border border-border bg-surface p-4">
+          <h3 className="mb-2 font-mono text-xs uppercase tracking-widest text-accent2">Stats</h3>
+          <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-3">
+            <StatRow label="BPM" value={feedback.features.bpm} />
+            <StatRow label="Key" value={feedback.features.key} />
+            <StatRow label="Loudness" value={`${feedback.features.rms_db} dB`} />
+            <StatRow label="Brightness" value={`${Math.round(feedback.features.brightness_hz)} Hz`} />
+            <StatRow label="Rolloff" value={`${Math.round(feedback.features.rolloff_hz)} Hz`} />
+            <StatRow label="Zero-Crossing Rate" value={feedback.features.zero_crossing_rate} />
+            <StatRow label="Dynamic Range" value={`${feedback.features.dynamic_range_db} dB`} />
+            <StatRow label="Low-End Ratio" value={`${Math.round(feedback.features.low_end_ratio * 100)}%`} />
+            <StatRow label="Onset Density" value={`${feedback.features.onset_density}/s`} />
+          </dl>
         </div>
       </div>
     );
