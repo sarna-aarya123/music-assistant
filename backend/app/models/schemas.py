@@ -138,7 +138,6 @@ class SegmentFeatures(BaseModel):
     brightness_hz: float
     onset_density: float
     zero_crossing_rate: float
-    key: str
 
 
 class TrackSegment(BaseModel):

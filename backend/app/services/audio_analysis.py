@@ -243,7 +243,7 @@ def _segment_slice_features(
     segment_duration = max(end_sec - start_sec, 0.01)
 
     if len(segment) == 0 or not np.any(segment):
-        return {"rms_db": -120.0, "brightness_hz": 0.0, "onset_density": 0.0, "zero_crossing_rate": 0.0, "key": "Unknown"}
+        return {"rms_db": -120.0, "brightness_hz": 0.0, "onset_density": 0.0, "zero_crossing_rate": 0.0}
 
     rms_mean = float(np.mean(librosa.feature.rms(y=segment)[0]))
     rms_db = round(20 * math.log10(rms_mean), 1) if rms_mean > 0 else -120.0
@@ -258,20 +258,16 @@ def _segment_slice_features(
 
     zero_crossing_rate = round(float(np.mean(librosa.feature.zero_crossing_rate(y=segment))), 4)
 
-    # A fresh (small — scoped to just this slice) chroma pass for a per-segment key read, useful
-    # for catching a key change/modulation the whole-track estimate would average away.
-    try:
-        chroma = librosa.feature.chroma_stft(y=segment, sr=sr, hop_length=_SPECTRAL_HOP_LENGTH, tuning=0)
-        key = _estimate_key(chroma.mean(axis=1))
-    except Exception:
-        key = "Unknown"
-
+    # Deliberately no per-segment key estimate: chroma-based key detection needs a real amount of
+    # signal to be reliable, and a short/bass-heavy/percussive slice (this app's whole target
+    # genre) reads as a false "key change" often enough that it did exactly that on a real test
+    # track that was actually all one key throughout. The whole-track estimate (computed over the
+    # full duration) stays reliable; this doesn't try to do the same thing on 10-20s of audio.
     return {
         "rms_db": rms_db,
         "brightness_hz": brightness_hz,
         "onset_density": onset_density,
         "zero_crossing_rate": zero_crossing_rate,
-        "key": key,
     }
 
 
@@ -296,9 +292,6 @@ def _describe_segment(seg: dict, whole: dict) -> list[str]:
         notes.append(f"Busier than the rest of the song rhythmically ({seg['onset_density']}/sec here vs {whole['onset_density']}/sec average).")
     elif onset_ratio <= 0.7 and whole["onset_density"] > 0:
         notes.append(f"Sparser/more open than the rest of the song ({seg['onset_density']}/sec here vs {whole['onset_density']}/sec average).")
-
-    if seg["key"] != "Unknown" and whole["key"] != "Unknown" and seg["key"] != whole["key"]:
-        notes.append(f"Reads as {seg['key']} here, vs {whole['key']} for the track overall — possibly a key change, or just an ambiguous short section.")
 
     if not notes:
         notes.append("Broadly consistent with the rest of the track — no standout difference in this window.")
@@ -439,7 +432,7 @@ def _extract(file_path: Path) -> dict:
     # whole-track numbers just computed above. See _detect_segment_boundaries's docstring for why
     # this doesn't cost another full spectral pass.
     boundary_times = _detect_segment_boundaries(rms, spectral["centroid_frames"], sr, _SPECTRAL_HOP_LENGTH, duration_sec)
-    whole_track = {"rms_db": rms_db, "brightness_hz": spectral["brightness_hz"], "onset_density": onset_density, "key": spectral["key"]}
+    whole_track = {"rms_db": rms_db, "brightness_hz": spectral["brightness_hz"], "onset_density": onset_density}
     segments = _build_segments(
         y, sr, boundary_times, duration_sec, onset_times, spectral["centroid_frames"], _SPECTRAL_HOP_LENGTH, whole_track
     )
