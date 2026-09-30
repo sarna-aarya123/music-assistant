@@ -17,7 +17,7 @@ import anyio
 import librosa
 import numpy as np
 
-from app.models.schemas import ChatMessage, CoachFeedbackResponse, TrackFeatures
+from app.models.schemas import ChatMessage, CoachFeedbackResponse, SegmentFeatures, TrackFeatures, TrackSegment
 from app.services import history, ollama_client
 
 # Krumhansl-Kessler key profiles — same approach as the MIDI Analyzer, applied to a chroma
@@ -100,6 +100,13 @@ def _low_end_ratio(spec_mag: np.ndarray, freqs: np.ndarray) -> float:
 # (see tests/test_coach_audio.py's spectral-equivalence tests).
 _SPECTRAL_HOP_LENGTH = 1024
 
+# Segment/"mark" detection — the full-song map's clickable points of interest. Tuned for a typical
+# 1.5-4min beat/song: enough marks to be useful without cluttering the timeline, spaced apart
+# enough that each segment is long enough to describe meaningfully.
+_MAX_MARKS = 7
+_MIN_SEGMENT_SEC = 6.0
+_EDGE_GUARD_SEC = 4.0  # ignore boundaries this close to the very start/end — not useful marks
+
 
 def _spectral_features(y: np.ndarray, sr: int) -> dict:
     """Key/brightness/rolloff/low-end-ratio, all derived from one shared magnitude spectrogram.
@@ -130,9 +137,13 @@ def _spectral_features(y: np.ndarray, sr: int) -> dict:
     chroma = librosa.feature.chroma_stft(y=y, sr=sr, S=stft**2, hop_length=_SPECTRAL_HOP_LENGTH, tuning=0)
     key = _estimate_key(chroma.mean(axis=1))
 
-    brightness_hz = round(
-        float(np.mean(librosa.feature.spectral_centroid(y=y, sr=sr, S=stft, hop_length=_SPECTRAL_HOP_LENGTH))), 1
-    )
+    # Kept as a frame-wise array (not just its mean) — a 1D array of a few thousand floats at most,
+    # negligible next to the 2D STFT/chroma matrices above, and it's what segment boundary
+    # detection below correlates against alongside frame-wise RMS. Freed along with everything
+    # else here once `_extract` is done with it; nowhere near the size that mattered for the
+    # OOM work this app's memory budget was originally tuned against.
+    centroid_frames = librosa.feature.spectral_centroid(y=y, sr=sr, S=stft, hop_length=_SPECTRAL_HOP_LENGTH)[0]
+    brightness_hz = round(float(np.mean(centroid_frames)), 1)
     rolloff_hz = round(
         float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, S=stft, hop_length=_SPECTRAL_HOP_LENGTH))), 1
     )
@@ -143,7 +154,192 @@ def _spectral_features(y: np.ndarray, sr: int) -> dict:
         "brightness_hz": brightness_hz,
         "rolloff_hz": rolloff_hz,
         "low_end_ratio": low_end_ratio,
+        "centroid_frames": centroid_frames,
     }
+
+
+def _smooth(x: np.ndarray, window: int) -> np.ndarray:
+    if len(x) < window:
+        return x
+    kernel = np.ones(window) / window
+    return np.convolve(x, kernel, mode="same")
+
+
+def _normalize(x: np.ndarray) -> np.ndarray:
+    span = float(x.max() - x.min())
+    return (x - x.min()) / span if span > 0 else np.zeros_like(x)
+
+
+_ENERGY_CURVE_POINTS = 240
+
+
+def _energy_curve(rms: np.ndarray) -> list[float]:
+    """Downsamples the already-computed frame-wise RMS into a fixed-length, 0-1-normalized curve
+    covering the whole track — what the frontend's full-song map draws as its "long waveform"
+    (it's actually a loudness-over-time curve, not a literal sample-accurate amplitude waveform,
+    but reads the same way at this resolution and costs nothing extra to produce: `rms` already
+    exists from the whole-track loudness calculation above, this just bins it down)."""
+    if len(rms) == 0:
+        return []
+    bins = np.array_split(rms, min(_ENERGY_CURVE_POINTS, len(rms)))
+    curve = np.array([float(np.mean(b)) for b in bins])
+    peak = float(curve.max())
+    if peak <= 0:
+        return [0.0] * len(curve)
+    return [round(float(v / peak), 3) for v in curve]
+
+
+def _detect_segment_boundaries(rms: np.ndarray, centroid: np.ndarray, sr: int, hop_length: int, duration_sec: float) -> list[float]:
+    """Finds structurally "interesting" moments — points where the track's loudness and/or tonal
+    brightness change significantly — using frame-wise data already computed for the whole-track
+    features above (no extra spectral pass). This is a novelty-curve approach: smooth both curves,
+    take the frame-to-frame change in each, and pick local peaks in the combined change signal.
+    Deliberately simple relative to full recurrence-matrix music segmentation (`librosa.segment`)
+    — good enough to land marks near real transitions (a drop, a new section) without the extra
+    O(n^2) cost a self-similarity matrix would add on a multi-minute track.
+    """
+    if len(rms) < 4 or duration_sec <= _EDGE_GUARD_SEC * 2:
+        return []
+
+    rms_s = _smooth(_normalize(rms), window=5)
+    centroid_s = _smooth(_normalize(centroid), window=5)
+    novelty = np.abs(np.diff(rms_s, prepend=rms_s[0])) + np.abs(np.diff(centroid_s, prepend=centroid_s[0]))
+    novelty = _smooth(novelty, window=9)
+
+    frames_per_sec = sr / hop_length
+    min_spacing_frames = max(1, int(_MIN_SEGMENT_SEC * frames_per_sec))
+    std = float(novelty.std())
+    if std == 0:
+        return []
+
+    peak_frames = librosa.util.peak_pick(
+        novelty,
+        pre_max=min_spacing_frames,
+        post_max=min_spacing_frames,
+        pre_avg=min_spacing_frames,
+        post_avg=min_spacing_frames,
+        delta=std * 0.5,
+        wait=min_spacing_frames,
+    )
+    if len(peak_frames) == 0:
+        return []
+
+    if len(peak_frames) > _MAX_MARKS:
+        peak_frames = np.array(sorted(sorted(peak_frames, key=lambda f: -novelty[f])[:_MAX_MARKS]))
+
+    times = librosa.frames_to_time(peak_frames, sr=sr, hop_length=hop_length)
+    return [round(float(t), 2) for t in times if _EDGE_GUARD_SEC <= t <= duration_sec - _EDGE_GUARD_SEC]
+
+
+def _segment_slice_features(
+    y: np.ndarray, sr: int, start_sec: float, end_sec: float, onset_times: list[float], centroid: np.ndarray, hop_length: int
+) -> dict:
+    """Deterministic feature extraction scoped to one time window — the same style of numbers as
+    the whole-track features, computed on just that slice, plus onset density reused from the
+    whole-track onset list (just counted within this window) rather than redetected."""
+    start_sample = int(start_sec * sr)
+    end_sample = int(end_sec * sr)
+    segment = y[start_sample:end_sample]
+    segment_duration = max(end_sec - start_sec, 0.01)
+
+    if len(segment) == 0 or not np.any(segment):
+        return {"rms_db": -120.0, "brightness_hz": 0.0, "onset_density": 0.0, "zero_crossing_rate": 0.0, "key": "Unknown"}
+
+    rms_mean = float(np.mean(librosa.feature.rms(y=segment)[0]))
+    rms_db = round(20 * math.log10(rms_mean), 1) if rms_mean > 0 else -120.0
+
+    start_frame = librosa.time_to_frames(start_sec, sr=sr, hop_length=hop_length)
+    end_frame = librosa.time_to_frames(end_sec, sr=sr, hop_length=hop_length)
+    centroid_slice = centroid[max(start_frame, 0) : min(end_frame, len(centroid))]
+    brightness_hz = round(float(np.mean(centroid_slice)), 1) if len(centroid_slice) else 0.0
+
+    onset_count = sum(1 for t in onset_times if start_sec <= t < end_sec)
+    onset_density = round(onset_count / segment_duration, 2)
+
+    zero_crossing_rate = round(float(np.mean(librosa.feature.zero_crossing_rate(y=segment))), 4)
+
+    # A fresh (small — scoped to just this slice) chroma pass for a per-segment key read, useful
+    # for catching a key change/modulation the whole-track estimate would average away.
+    try:
+        chroma = librosa.feature.chroma_stft(y=segment, sr=sr, hop_length=_SPECTRAL_HOP_LENGTH, tuning=0)
+        key = _estimate_key(chroma.mean(axis=1))
+    except Exception:
+        key = "Unknown"
+
+    return {
+        "rms_db": rms_db,
+        "brightness_hz": brightness_hz,
+        "onset_density": onset_density,
+        "zero_crossing_rate": zero_crossing_rate,
+        "key": key,
+    }
+
+
+def _describe_segment(seg: dict, whole: dict) -> list[str]:
+    """Comparison-aware, segment-specific notes — this is the "insanely in depth" per-mark
+    feedback, grounded in exactly how this window differs from the track as a whole, not just
+    restating the same thresholds `_describe_features` already gives for the whole track."""
+    notes: list[str] = []
+
+    loud_delta = seg["rms_db"] - whole["rms_db"]
+    if abs(loud_delta) >= 3:
+        direction = "louder" if loud_delta > 0 else "quieter"
+        notes.append(f"{abs(loud_delta):.1f} dB {direction} than the track average ({seg['rms_db']} dB here vs {whole['rms_db']} dB overall).")
+
+    bright_delta = seg["brightness_hz"] - whole["brightness_hz"]
+    if abs(bright_delta) >= 400:
+        direction = "brighter" if bright_delta > 0 else "darker/warmer"
+        notes.append(f"Noticeably {direction} than the rest of the track ({seg['brightness_hz']:.0f} Hz vs {whole['brightness_hz']:.0f} Hz average).")
+
+    onset_ratio = seg["onset_density"] / whole["onset_density"] if whole["onset_density"] > 0 else 1.0
+    if onset_ratio >= 1.4:
+        notes.append(f"Busier than the rest of the song rhythmically ({seg['onset_density']}/sec here vs {whole['onset_density']}/sec average).")
+    elif onset_ratio <= 0.7 and whole["onset_density"] > 0:
+        notes.append(f"Sparser/more open than the rest of the song ({seg['onset_density']}/sec here vs {whole['onset_density']}/sec average).")
+
+    if seg["key"] != "Unknown" and whole["key"] != "Unknown" and seg["key"] != whole["key"]:
+        notes.append(f"Reads as {seg['key']} here, vs {whole['key']} for the track overall — possibly a key change, or just an ambiguous short section.")
+
+    if not notes:
+        notes.append("Broadly consistent with the rest of the track — no standout difference in this window.")
+
+    return notes[:4]
+
+
+def _build_segments(
+    y: np.ndarray,
+    sr: int,
+    boundary_times: list[float],
+    duration_sec: float,
+    onset_times: list[float],
+    centroid: np.ndarray,
+    hop_length: int,
+    whole_track: dict,
+) -> list[dict]:
+    """Turns detected boundary times into described segments — [0, b1), [b1, b2), ..., [bN, end)."""
+    edges = [0.0] + sorted(boundary_times) + [duration_sec]
+    # Merge any segment that ended up too short (two boundaries landed close together).
+    merged = [edges[0]]
+    for edge in edges[1:]:
+        if edge - merged[-1] < _MIN_SEGMENT_SEC:
+            continue
+        merged.append(edge)
+    if merged[-1] != duration_sec:
+        merged[-1] = duration_sec
+
+    segments = []
+    for start, end in zip(merged[:-1], merged[1:]):
+        seg_features = _segment_slice_features(y, sr, start, end, onset_times, centroid, hop_length)
+        segments.append(
+            {
+                "start_sec": round(start, 2),
+                "end_sec": round(end, 2),
+                "mark_sec": round(start, 2),
+                "features": seg_features,
+                "notes": _describe_segment(seg_features, whole_track),
+            }
+        )
+    return segments
 
 
 def _extract(file_path: Path) -> dict:
@@ -199,6 +395,8 @@ def _extract(file_path: Path) -> dict:
             "onset_density": 0.0,
             "onset_times": [],
             "beat_times": [],
+            "segments": [],
+            "energy_curve": [],
         }
 
     # `beat_track` and `onset_detect` each independently build an onset-strength envelope from
@@ -219,7 +417,12 @@ def _extract(file_path: Path) -> dict:
     # that call returns, rather than lingering as live locals here through the rest of `_extract`.
     spectral = _spectral_features(y, sr)
 
-    rms = librosa.feature.rms(y=y)[0]
+    # Same hop length as the spectral pass (not librosa's default 512) so this frame-wise RMS
+    # aligns index-for-index with `centroid_frames` below — both needed on the same time grid for
+    # segment-boundary detection. Changes the aggregate rms_db/dynamic_range_db by an amount too
+    # small to matter (same tradeoff already made for brightness/rolloff/key — see
+    # _SPECTRAL_HOP_LENGTH's comment above).
+    rms = librosa.feature.rms(y=y, hop_length=_SPECTRAL_HOP_LENGTH)[0]
     rms_mean = float(np.mean(rms))
     rms_db = round(20 * math.log10(rms_mean), 1) if rms_mean > 0 else -120.0
 
@@ -231,6 +434,15 @@ def _extract(file_path: Path) -> dict:
     onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, units="time")
     onset_density = round(len(onsets) / duration_sec, 2) if duration_sec > 0 else 0.0
     onset_times = [round(float(t), 3) for t in onsets]
+
+    # Full-song map "marks" — structurally interesting points, described in depth relative to the
+    # whole-track numbers just computed above. See _detect_segment_boundaries's docstring for why
+    # this doesn't cost another full spectral pass.
+    boundary_times = _detect_segment_boundaries(rms, spectral["centroid_frames"], sr, _SPECTRAL_HOP_LENGTH, duration_sec)
+    whole_track = {"rms_db": rms_db, "brightness_hz": spectral["brightness_hz"], "onset_density": onset_density, "key": spectral["key"]}
+    segments = _build_segments(
+        y, sr, boundary_times, duration_sec, onset_times, spectral["centroid_frames"], _SPECTRAL_HOP_LENGTH, whole_track
+    )
 
     return {
         "duration_sec": duration_sec,
@@ -245,6 +457,8 @@ def _extract(file_path: Path) -> dict:
         "onset_density": onset_density,
         "onset_times": onset_times,
         "beat_times": beat_times,
+        "segments": segments,
+        "energy_curve": _energy_curve(rms),
     }
 
 
@@ -343,6 +557,7 @@ async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResp
         onset_density=raw["onset_density"],
         onset_times=raw["onset_times"],
         beat_times=raw["beat_times"],
+        energy_curve=raw["energy_curve"],
     )
 
     strengths, improvements = _describe_features(features, raw["duration_sec"])
@@ -364,11 +579,23 @@ async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResp
         f"Feedback already given — improvements: {'; '.join(improvements)}"
     )
 
+    segments = [
+        TrackSegment(
+            start_sec=seg["start_sec"],
+            end_sec=seg["end_sec"],
+            mark_sec=seg["mark_sec"],
+            features=SegmentFeatures(**seg["features"]),
+            notes=seg["notes"],
+        )
+        for seg in raw["segments"]
+    ]
+
     return CoachFeedbackResponse(
         track_id=track_id,
         features=features,
         strengths=strengths,
         improvements=improvements,
+        segments=segments,
     )
 
 

@@ -95,7 +95,7 @@ def test_upload_and_feedback_normal_audio_preserves_contract(client):
     feedback_body = feedback_res.json()
 
     assert feedback_body["track_id"] == upload_body["track_id"]
-    assert set(feedback_body) == {"track_id", "features", "strengths", "improvements"}
+    assert set(feedback_body) == {"track_id", "features", "strengths", "improvements", "segments"}
 
     expected_feature_keys = {
         "bpm",
@@ -107,8 +107,19 @@ def test_upload_and_feedback_normal_audio_preserves_contract(client):
         "dynamic_range_db",
         "low_end_ratio",
         "onset_density",
+        "onset_times",
+        "beat_times",
+        "energy_curve",
     }
     assert set(feedback_body["features"]) == expected_feature_keys
+
+    # Segments are the full-song map's "marks" — a 3s test tone is short enough that boundary
+    # detection legitimately finds nothing (or the whole clip counts as one segment); either is
+    # fine here, the shape/type is what matters for a contract test.
+    assert isinstance(feedback_body["segments"], list)
+    for seg in feedback_body["segments"]:
+        assert set(seg) == {"start_sec", "end_sec", "mark_sec", "features", "notes"}
+        assert set(seg["features"]) == {"rms_db", "brightness_hz", "onset_density", "zero_crossing_rate", "key"}
 
     assert isinstance(feedback_body["strengths"], list) and feedback_body["strengths"]
     assert isinstance(feedback_body["improvements"], list) and feedback_body["improvements"]
@@ -200,7 +211,7 @@ def test_spectral_features_helper_returns_expected_shape(tmp_path):
 
     result = _spectral_features(y, sr)
 
-    assert set(result) == {"key", "brightness_hz", "rolloff_hz", "low_end_ratio"}
+    assert set(result) == {"key", "brightness_hz", "rolloff_hz", "low_end_ratio", "centroid_frames"}
     assert result["key"] != ""
     assert result["brightness_hz"] >= 0.0
     assert result["rolloff_hz"] >= 0.0

@@ -130,6 +130,23 @@ export type TrackFeatures = {
   onset_density: number;
   onset_times: number[];
   beat_times: number[];
+  energy_curve: number[];
+};
+
+export type SegmentFeatures = {
+  rms_db: number;
+  brightness_hz: number;
+  onset_density: number;
+  zero_crossing_rate: number;
+  key: string;
+};
+
+export type TrackSegment = {
+  start_sec: number;
+  end_sec: number;
+  mark_sec: number;
+  features: SegmentFeatures;
+  notes: string[];
 };
 
 export type CoachFeedbackResponse = {
@@ -137,6 +154,7 @@ export type CoachFeedbackResponse = {
   features: TrackFeatures;
   strengths: string[];
   improvements: string[];
+  segments: TrackSegment[];
 };
 
 export async function uploadTrack(file: File): Promise<CoachUploadResponse> {

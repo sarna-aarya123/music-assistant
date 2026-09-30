@@ -121,6 +121,38 @@ class TrackFeatures(BaseModel):
     # markers on the frontend. Defaulted to [] for the same history-backcompat reason as above.
     onset_times: list[float] = []
     beat_times: list[float] = []
+    # Fixed-length (240 points), 0-1-normalized loudness-over-time curve spanning the whole track —
+    # what the full-song map draws as its "long waveform". Not a literal sample-accurate amplitude
+    # waveform (see _energy_curve's docstring in audio_analysis.py), but free to produce and reads
+    # the same way at this resolution.
+    energy_curve: list[float] = []
+
+
+class SegmentFeatures(BaseModel):
+    """The subset of TrackFeatures re-computed on just one time window of the track. Narrower than
+    TrackFeatures on purpose — low_end_ratio/rolloff/dynamic_range would need the full STFT kept
+    alive per-segment, which isn't worth the memory cost on a 512MB instance for what's meant to be
+    a quick per-section comparison, not a duplicate of the whole-track analysis."""
+
+    rms_db: float
+    brightness_hz: float
+    onset_density: float
+    zero_crossing_rate: float
+    key: str
+
+
+class TrackSegment(BaseModel):
+    """One clickable "mark" on the full-song map, and the deep-dive behind it. `mark_sec` is where
+    the boundary was detected (and what the frontend places the pin at); the segment itself runs
+    `start_sec` to `end_sec`."""
+
+    start_sec: float
+    end_sec: float
+    mark_sec: float
+    features: SegmentFeatures
+    # Comparison-aware, plain-Python-generated notes — how this window differs from the track's
+    # own average (see _describe_segment in audio_analysis.py), not another model call.
+    notes: list[str]
 
 
 class CoachFeedbackResponse(BaseModel):
@@ -129,6 +161,9 @@ class CoachFeedbackResponse(BaseModel):
     # Rule-based read on the features above (plain Python thresholds, not a model call).
     strengths: list[str]
     improvements: list[str]
+    # The full-song map's marks. Defaulted to [] for history-backcompat (rows saved before this
+    # field existed).
+    segments: list[TrackSegment] = []
 
 
 class ChatMessage(BaseModel):
