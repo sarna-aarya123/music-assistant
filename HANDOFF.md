@@ -53,6 +53,41 @@ codebase but is intentionally disconnected (see "AI is disconnected, not deleted
 - Backend gained `onset_times`/`beat_times` (actual timestamp arrays, not just aggregates) on
   `TrackFeatures` — this is what feeds the beat grid/onset markers/beat-boost pulse. Defaulted to
   `[]` for history-backcompat, same pattern as the other depth fields.
+- **`components/SongMap.tsx`** (new) — the full-track "song map" the user asked for: a long bar
+  chart of the whole track's loudness curve (`TrackFeatures.energy_curve`, 240 points, free to
+  produce — it's the same frame-wise RMS array already computed for the whole-track loudness
+  number, just binned down, not a second pass), with a pin at every algorithmically-detected
+  structural mark (`CoachFeedbackResponse.segments`). Clicking a pin triggers a bouncy scale/fade
+  transition (CSS only, origin set to the clicked pin's x-position) into a "studio" deep-dive for
+  that section: a zoomed slice of the same energy curve, a compact stat readout, and
+  comparison-aware notes ("6.2 dB louder than the track average", "busier than the rest of the
+  song rhythmically") — genuinely per-section feedback, not the whole-track aggregate restated.
+  This is a separate view from `WaveformExplorer` (the live audio-reactive player) — they serve
+  different purposes (listen-along vs. structural analysis) and are both shown, stacked, once a
+  track's analyzed.
+  - **Backend**: `_detect_segment_boundaries()` in `audio_analysis.py` finds these marks via a
+    novelty-curve approach (smoothed frame-wise RMS + spectral centroid, `librosa.util.peak_pick`
+    on the combined rate-of-change) — deliberately simpler than full recurrence-matrix segmentation
+    (`librosa.segment`), and crucially **reuses frame-wise arrays already computed** for the
+    whole-track features rather than taking a second spectral pass — this mattered a lot given how
+    hard the prior OOM/perf work fought for this pipeline's cost. Measured added cost: ~0.15s
+    (segment boundary detection + per-segment feature extraction + notes), negligible next to the
+    existing ~1-2s (warm) / ~90-100s (Render free-tier CPU) full pass. Per-segment features
+    (`SegmentFeatures`) are deliberately a narrower set than the whole-track `TrackFeatures` —
+    no `low_end_ratio`/`rolloff_hz`/`dynamic_range_db`, since those would need the full STFT kept
+    alive per-segment (real memory cost); loudness/brightness/onset-density/ZCR/key covers the
+    "insanely in depth" ask without that cost. `coach_feedback.segments_json` is a new SQLite
+    column (same `ALTER TABLE` + duplicate-column-swallow pattern as the other added columns);
+    `CoachFeedbackResponse.segments` and `TrackFeatures.energy_curve` both default to `[]` for
+    history rows saved before this existed — the frontend hides `SongMap` entirely when
+    `energy_curve` is empty (old history entries just show the stats/strengths/improvements as
+    before, no broken half-rendered map).
+  - Verified end-to-end locally: a synthetic 4-section 75s test file (deliberately loud/quiet,
+    bright/dark, dense/sparse sections) — detected boundaries landed within ~2s of the real
+    section changes, notes correctly called out real dB/Hz/onset-density deltas per section, full
+    upload→feedback→history round-trip confirmed via curl, and `backend/tests/test_coach_audio.py`
+    updated + all 8 tests passing. Not yet checked in an actual browser this session (no browser
+    tool access) — worth a first-look pass next session.
 
 ## AI is disconnected, not deleted
 
@@ -136,9 +171,12 @@ Test coverage for all of this lives in `backend/tests/test_coach_audio.py` (8 te
 
 ## Next task
 
-User's target: fully "knock out" this pivot within a week (college apps due Nov 1). Tonight's work
-(waveform explorer, layout rework, MIDI/Lyric Lab removal from frontend, colorway system) is
-committed and pushed. No next task defined yet beyond that — check with the user. Worth asking
-early next session whether MIDI Analyzer/Lyric Lab should be fully deleted from the backend too
-(currently just unlinked, per this session's time-pressured default — see "AI is disconnected, not
-deleted" above) once the user has had a chance to decide.
+User's target: fully "knock out" this pivot within a week (college apps due Nov 1). Waveform
+explorer, layout rework, MIDI/Lyric Lab removal from frontend, colorway system, and the song-map/
+studio-drilldown feature are all committed and pushed. **First thing next session: actually look
+at SongMap in a real browser** (no browser tool access this session, so it's only been verified via
+curl/backend tests + `tsc`/dev-server compile checks — the zoom transition, pin placement, and
+overall feel haven't been eyeballed yet). No other next task defined — check with the user. Worth
+asking early next session whether MIDI Analyzer/Lyric Lab should be fully deleted from the backend
+too (currently just unlinked — see "AI is disconnected, not deleted" above) once the user has had a
+chance to decide.

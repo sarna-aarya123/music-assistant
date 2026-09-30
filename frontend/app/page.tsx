@@ -13,6 +13,7 @@ import {
 import { useCountUp } from "@/lib/useCountUp";
 import { useSlowLoadHint } from "@/lib/useSlowLoadHint";
 import WaveformExplorer from "@/components/WaveformExplorer";
+import SongMap from "@/components/SongMap";
 
 export default function HomePage() {
   const [file, setFile] = useState<File | null>(null);
@@ -21,7 +22,11 @@ export default function HomePage() {
   // input's current selection) since the user can pick a new file before re-analyzing. Only set
   // for a fresh upload in this session — a history entry has no in-browser bytes to wave-form.
   const [analyzedFile, setAnalyzedFile] = useState<File | null>(null);
-  const [analyzedDuration, setAnalyzedDuration] = useState(0);
+  // Duration of the currently-shown track — set on a fresh analysis (from the upload response) or
+  // when loading a history entry (which carries its own duration_sec at the top level, separate
+  // from `feedback.features`). Used by both WaveformExplorer (fresh analysis only) and SongMap
+  // (either source) for time<->position math.
+  const [durationSec, setDurationSec] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<"upload" | "feedback" | null>(null);
   const [history, setHistory] = useState<CoachHistoryEntry[]>([]);
@@ -48,7 +53,7 @@ export default function HomePage() {
       setLoading("feedback");
       setFeedback(await getFeedback(uploaded.track_id));
       setAnalyzedFile(file);
-      setAnalyzedDuration(uploaded.duration_sec);
+      setDurationSec(uploaded.duration_sec);
       getCoachHistory()
         .then(setHistory)
         .catch(() => {});
@@ -63,6 +68,7 @@ export default function HomePage() {
     setError(null);
     setFeedback(entry.feedback);
     setAnalyzedFile(null); // no in-browser bytes for a past entry — waveform explorer needs those
+    setDurationSec(entry.duration_sec);
   }
 
   function reset() {
@@ -90,13 +96,23 @@ export default function HomePage() {
         {analyzedFile ? (
           <WaveformExplorer
             file={analyzedFile}
-            durationSec={analyzedDuration}
+            durationSec={durationSec}
             onsetTimes={feedback.features.onset_times}
             beatTimes={feedback.features.beat_times}
           />
         ) : (
           <div className="hud-panel flex h-[60vh] items-center justify-center border border-border bg-surface p-4 text-center font-mono text-xs text-muted sm:h-[70vh]">
             No waveform for past entries — analyze a track to see it here.
+          </div>
+        )}
+
+        {feedback.features.energy_curve.length > 0 && (
+          <div className="mt-4">
+            <SongMap
+              energyCurve={feedback.features.energy_curve}
+              segments={feedback.segments}
+              durationSec={durationSec}
+            />
           </div>
         )}
 

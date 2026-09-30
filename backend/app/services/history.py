@@ -151,8 +151,8 @@ async def save_coach_feedback(track_id: str, result: CoachFeedbackResponse) -> N
     async with connect() as db:
         await db.execute(
             "INSERT OR REPLACE INTO coach_feedback (track_id, created_at, features_json, "
-            "ai_available, strengths_json, improvements_json, follow_up_questions_json) "
-            "VALUES (?,?,?,?,?,?,?)",
+            "ai_available, strengths_json, improvements_json, follow_up_questions_json, segments_json) "
+            "VALUES (?,?,?,?,?,?,?,?)",
             (
                 track_id,
                 _now(),
@@ -161,6 +161,7 @@ async def save_coach_feedback(track_id: str, result: CoachFeedbackResponse) -> N
                 json.dumps(result.strengths),
                 json.dumps(result.improvements),
                 "[]",  # follow_up_questions — vestigial, chat is disconnected (see audio_analysis.py)
+                json.dumps([s.model_dump() for s in result.segments]),
             ),
         )
         await db.commit()
@@ -205,7 +206,7 @@ async def list_coach_history(limit: int = 20) -> list[CoachHistoryEntry]:
     async with connect() as db:
         cursor = await db.execute(
             "SELECT ct.track_id, ct.created_at, ct.filename, ct.duration_sec, cf.features_json, "
-            "cf.strengths_json, cf.improvements_json "
+            "cf.strengths_json, cf.improvements_json, cf.segments_json "
             "FROM coach_tracks ct LEFT JOIN coach_feedback cf ON cf.track_id = ct.track_id "
             "ORDER BY ct.rowid DESC LIMIT ?",
             (limit,),
@@ -217,11 +218,15 @@ async def list_coach_history(limit: int = 20) -> list[CoachHistoryEntry]:
         feedback = None
         if row["features_json"] is not None:
             features = json.loads(row["features_json"])
+            # `segments_json` didn't exist before the ALTER TABLE in core/db.py — sqlite's row
+            # mapping still exposes it (default applied at add-column time), but guard anyway.
+            segments_raw = row["segments_json"] if "segments_json" in row.keys() and row["segments_json"] else "[]"
             feedback = CoachFeedbackResponse(
                 track_id=row["track_id"],
                 features=TrackFeatures(**features),
                 strengths=json.loads(row["strengths_json"]),
                 improvements=json.loads(row["improvements_json"]),
+                segments=json.loads(segments_raw),
             )
         entries.append(
             CoachHistoryEntry(

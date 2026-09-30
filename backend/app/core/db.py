@@ -81,6 +81,7 @@ _NEW_COLUMNS = [
     ("midi_analyses", "avg_note_length_sec", "REAL NOT NULL DEFAULT 0"),
     ("midi_analyses", "polyphony", "INTEGER NOT NULL DEFAULT 0"),
     ("midi_analyses", "syncopation", "REAL NOT NULL DEFAULT 0"),
+    ("coach_feedback", "segments_json", "TEXT NOT NULL DEFAULT '[]'"),
 ]
 
 
