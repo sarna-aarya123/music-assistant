@@ -1,38 +1,52 @@
 # AI Music Assistant
 
-Upload a beat, get real deterministic audio analysis (BPM, key, loudness, spectral shape, beat/
-onset timing), and explore it through an interactive, audio-reactive waveform visualizer — click
-or drag anywhere to scrub, and the bars react live to the actual sound as it plays, with a bounce
-on every detected beat. Colorway switcher in the nav for a few different visual themes.
+Upload a beat and explore it. The app analyzes the audio, draws the whole song as an interactive
+map, and lets you click into any section for a detailed read on that part of the track.
 
-No AI/LLM call is involved anywhere — every number and piece of feedback is computed by plain
-Python (`librosa`) and rule-based thresholds. Deployed live: Vercel (frontend) + Render free tier
-(backend).
+**Live:** Vercel (frontend) + Render free tier (backend). The first request after idle can take up
+to a minute while the free-tier server wakes up.
 
-> This started as three planned features (MIDI Analyzer, Lyric Lab, AI Coach) with Ollama-backed
-> narrative feedback — see [HANDOFF.md](HANDOFF.md) for the real, current history. It narrowed to
-> this single interactive tool; PLAN.md/ARCHITECTURE.md describe the original three-feature scope
-> and predate that change.
+## What it does
+
+- **Audio analysis** — BPM, key, loudness, brightness, spectral rolloff, dynamic range, low-end
+  ratio, onset density, plus beat and onset timestamps. All computed in Python with `librosa`.
+- **Interactive waveform** — audio-reactive bars driven by the Web Audio API, with a beat grid,
+  onset ticks, click/drag scrubbing, and a pulse on every detected beat.
+- **Song Map** — the full track's loudness curve with markers at algorithmically detected
+  structural moments (novelty detection over loudness and brightness). Click a marker to zoom into
+  that section and see its own loudness, brightness and rhythmic density, compared against the
+  rest of the track.
+- **Local AI producer (optional)** — if [Ollama](https://ollama.com) is running locally, each
+  section gets a plain-language read and a follow-up chat. Python measures every number; the model
+  only interprets a fixed fact sheet, and any number or key in its reply that isn't in that sheet
+  is flagged in the UI. On the deployed site Ollama isn't available, so this panel simply doesn't
+  appear.
+- **Colorways** — four switchable color themes.
 
 ## Stack
 
-- **Frontend:** Next.js (App Router) + TypeScript + Tailwind CSS
-- **Backend:** FastAPI (Python)
-- **Audio analysis:** librosa / soundfile — all deterministic, no model calls
+- **Frontend:** Next.js (App Router), TypeScript, Tailwind CSS, canvas + Web Audio
+- **Backend:** FastAPI, librosa / soundfile / NumPy, SQLite (history)
+- **Optional AI:** Ollama (default model `llama3:8b`)
+- **Hosting:** Vercel + Render, with a GitHub Actions ping to keep the backend warm
 
-## Repo layout
+## Major changes
 
-```
-MUSIC ASSISTANT/
-├── frontend/         Next.js app — single page (app/page.tsx) + WaveformExplorer
-├── backend/          FastAPI app (routers, services, audio analysis)
-├── .github/workflows/ keep-alive ping for the Render free-tier backend
-├── docs/             Per-feature specs (mostly historical — see HANDOFF.md)
-├── PLAN.md           Original phased roadmap (historical)
-└── ARCHITECTURE.md   Original system design doc (historical)
-```
+1. **Initial build** — three tools: MIDI analyzer, lyric analyzer, audio coach.
+2. **Persistence and polish** — SQLite history, upload limits, error handling.
+3. **Visual redesigns** — from a dark HUD look to a bright arcade theme, then to the current dark
+   neon style with switchable colorways.
+4. **Deterministic analysis** — replaced model-written feedback with measured features and
+   rule-based text; went deeper on the Python side.
+5. **Performance** — removed a duplicate analysis pass (about 2x faster uploads), offloaded blocking
+   work from the event loop, added a keep-alive ping and a "server waking up" hint for Render's
+   free tier.
+6. **Single-tool pivot** — dropped the MIDI and lyric tools to focus on one interactive experience.
+7. **Song Map** — whole-song view with detected markers and a per-section deep dive.
+8. **Local AI layer** — grounded per-section reads and chat via Ollama, checked against the
+   measured numbers.
 
-## Running it locally
+## Run it locally
 
 **Backend**
 
@@ -54,6 +68,19 @@ copy .env.local.example .env.local
 npm run dev
 ```
 
-Then open http://localhost:3000. The frontend expects the backend at http://localhost:8000 by
-default (configurable via `NEXT_PUBLIC_API_BASE_URL`). No external services (Ollama or otherwise)
-are required.
+Open http://localhost:3000. The frontend expects the backend at http://localhost:8000 (override
+with `NEXT_PUBLIC_API_BASE_URL`).
+
+**Optional AI panel**
+
+```bash
+ollama pull llama3:8b
+ollama serve
+```
+
+## Tests
+
+```bash
+cd backend
+pytest
+```

@@ -25,3 +25,10 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/
+
+# --- local working notes (kept on disk, not published) ---
+CLAUDE.md
+HANDOFF.md
+PLAN.md
+ARCHITECTURE.md
+docs/
