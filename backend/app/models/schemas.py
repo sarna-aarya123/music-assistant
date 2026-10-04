@@ -165,6 +165,24 @@ class CoachFeedbackResponse(BaseModel):
     segments: list[TrackSegment] = []
 
 
+class AiStatusResponse(BaseModel):
+    available: bool
+    model: str
+
+
+class InsightRequest(BaseModel):
+    track_id: str
+    segment_index: int
+
+
+class InsightResponse(BaseModel):
+    text: str
+    model: str
+    # Numbers the model wrote that don't appear in the measured facts it was given — surfaced
+    # rather than hidden, so the UI can flag a read that might be hallucinating.
+    unverified_claims: list[str] = []
+
+
 class ChatMessage(BaseModel):
     """Kept for a future AI-chat pass — not wired up to any route right now."""
 
@@ -175,10 +193,13 @@ class ChatMessage(BaseModel):
 class CoachChatRequest(BaseModel):
     track_id: str
     messages: list[ChatMessage]
+    # Which section the producer is looking at (None = whole track).
+    segment_index: int | None = None
 
 
 class CoachChatResponse(BaseModel):
     reply: str
+    unverified_claims: list[str] = []
 
 
 class CoachHistoryEntry(BaseModel):

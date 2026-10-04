@@ -109,6 +109,7 @@ export default function HomePage() {
         {feedback.features.energy_curve.length > 0 && (
           <div className="mt-4">
             <SongMap
+              trackId={feedback.track_id}
               energyCurve={feedback.features.energy_curve}
               segments={feedback.segments}
               durationSec={durationSec}

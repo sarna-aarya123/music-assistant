@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import type { TrackSegment } from "@/lib/api";
+import AiProducerPanel from "@/components/AiProducerPanel";
 
 type SongMapProps = {
+  trackId: string;
   energyCurve: number[];
   segments: TrackSegment[];
   durationSec: number;
@@ -22,7 +24,7 @@ function formatTime(sec: number): string {
 /** Full-track "song map": the whole track's loudness curve as one long bar chart, with a pin at
  * every algorithmically-detected structural mark. Clicking a pin zooms into a "studio" deep-dive
  * for that section — a real per-window feature readout, not the whole-track aggregate. */
-export default function SongMap({ energyCurve, segments, durationSec }: SongMapProps) {
+export default function SongMap({ trackId, energyCurve, segments, durationSec }: SongMapProps) {
   const [selected, setSelected] = useState<TrackSegment | null>(null);
   const [originPct, setOriginPct] = useState(50);
 
@@ -42,7 +44,7 @@ export default function SongMap({ energyCurve, segments, durationSec }: SongMapP
     : [];
 
   return (
-    <div className="hud-panel relative overflow-hidden border border-border bg-surface p-4">
+    <div className="hud-panel relative min-h-[26rem] overflow-hidden border border-border bg-surface p-4">
       {/* Full-song overview */}
       <div
         className={`transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
@@ -137,6 +139,7 @@ export default function SongMap({ energyCurve, segments, durationSec }: SongMapP
                   {note}
                 </div>
               ))}
+              <AiProducerPanel trackId={trackId} segmentIndex={segments.indexOf(selected)} />
             </div>
           </>
         )}

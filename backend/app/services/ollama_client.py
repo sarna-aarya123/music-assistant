@@ -31,6 +31,26 @@ def is_installed() -> bool:
     return shutil.which("ollama") is not None
 
 
+async def ping() -> dict:
+    """Quick reachability check — returns {"available": bool, "model": str, "installed_models": [...]}.
+
+    Never raises: callers use this to decide whether to show AI features at all, so an unreachable
+    Ollama (the normal case on the deployed Render backend) is just `available: False`.
+    """
+    try:
+        async with httpx.AsyncClient(base_url=settings.ollama_host, timeout=2.0) as client:
+            response = await client.get("/api/tags")
+            response.raise_for_status()
+        names = [m["name"] for m in response.json().get("models", [])]
+    except (httpx.HTTPError, ValueError, KeyError):
+        return {"available": False, "model": settings.ollama_model, "installed_models": []}
+    return {
+        "available": settings.ollama_model in names,
+        "model": settings.ollama_model,
+        "installed_models": names,
+    }
+
+
 async def chat(
     messages: list[dict[str, str]], model: str | None = None, temperature: float | None = None
 ) -> str:

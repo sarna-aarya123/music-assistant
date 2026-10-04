@@ -6,13 +6,19 @@ from fastapi import APIRouter, HTTPException, UploadFile
 
 from app.core.config import settings
 from app.models.schemas import (
+    AiStatusResponse,
+    CoachChatRequest,
+    CoachChatResponse,
     CoachFeedbackRequest,
     CoachFeedbackResponse,
     CoachHistoryEntry,
     CoachUploadResponse,
+    InsightRequest,
+    InsightResponse,
 )
-from app.services import audio_analysis, history
+from app.services import ai_producer, audio_analysis, history, ollama_client
 from app.services.audio_analysis import AudioLoadError
+from app.services.ollama_client import OllamaError
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
 
@@ -73,6 +79,46 @@ async def feedback(body: CoachFeedbackRequest):
 
     await history.save_coach_feedback(body.track_id, result)
     return result
+
+
+@router.get("/ai-status", response_model=AiStatusResponse)
+async def ai_status():
+    status = await ollama_client.ping()
+    return AiStatusResponse(available=status["available"], model=status["model"])
+
+
+async def _load_feedback(track_id: str) -> CoachFeedbackResponse:
+    fb = await history.get_coach_feedback(track_id)
+    if fb is None:
+        raise HTTPException(status_code=404, detail="Unknown track_id — analyze the track first.")
+    return fb
+
+
+def _check_segment(fb: CoachFeedbackResponse, index: int | None) -> None:
+    if index is not None and not 0 <= index < len(fb.segments):
+        raise HTTPException(status_code=400, detail="segment_index out of range.")
+
+
+@router.post("/insight", response_model=InsightResponse)
+async def insight(body: InsightRequest):
+    fb = await _load_feedback(body.track_id)
+    _check_segment(fb, body.segment_index)
+    try:
+        text, unverified = await ai_producer.section_insight(fb, body.segment_index)
+    except OllamaError as exc:
+        raise HTTPException(status_code=503, detail="Local AI isn't available.") from exc
+    return InsightResponse(text=text, model=ai_producer.model_name(), unverified_claims=unverified)
+
+
+@router.post("/chat", response_model=CoachChatResponse)
+async def chat(body: CoachChatRequest):
+    fb = await _load_feedback(body.track_id)
+    _check_segment(fb, body.segment_index)
+    try:
+        reply, unverified = await ai_producer.chat(fb, body.messages, body.segment_index)
+    except OllamaError as exc:
+        raise HTTPException(status_code=503, detail="Local AI isn't available.") from exc
+    return CoachChatResponse(reply=reply, unverified_claims=unverified)
 
 
 @router.get("/history", response_model=list[CoachHistoryEntry])

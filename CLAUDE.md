@@ -13,13 +13,19 @@ direction narrowed to "one interactive audio tool" instead of three report-gener
 Full context: [HANDOFF.md](HANDOFF.md) (the accurate, current source of truth — PLAN.md/
 ARCHITECTURE.md/README.md predate this pivot and are stale).
 
-## No AI/LLM on any active route
+## Hybrid analysis: Python measures, local Ollama interprets
 
-Every number and piece of feedback the app shows is computed deterministically in Python
-(`librosa`) — there is no model call anywhere in the live product. Ollama integration
-(`backend/app/services/ollama_client.py`, disconnected chat/generation code) is kept in the
-codebase but not wired to any route, so it can be reconnected later without a rebuild. Don't
-reintroduce an LLM call into the feedback path without the user asking for it specifically.
+Every number the app shows is computed deterministically in Python (`librosa`). On top of that, an
+optional local-LLM layer (`backend/app/services/ai_producer.py`, via `ollama_client.py`) writes a
+plain-language read of a clicked section and answers follow-up questions about it
+(`/api/coach/insight`, `/api/coach/chat`, `/api/coach/ai-status`). Rules for that layer:
+- The model never produces a number. It gets a fixed fact sheet (including Python-computed
+  "higher/lower than track average" wording) and `find_unverified_claims()` flags any number or key
+  in the reply that isn't in the sheet (`unverified_claims`, shown in the UI, not hidden).
+- Ollama only exists on the user's machine. On Render/Vercel `ai-status` reports unavailable, the
+  AI panel doesn't render, and everything else works unchanged. Never make a live route depend on it.
+- Default model `llama3:8b` (`OLLAMA_MODEL`); ~13s warm per read, first call loads the model.
+- Known limit: an 8B model can still misstate a comparison direction; the checker can't catch that.
 
 ## Stack
 
@@ -64,13 +70,13 @@ cd backend && .venv\Scripts\activate && uvicorn app.main:app --reload
 cd frontend && npm run dev
 ```
 
-No local services (Ollama or otherwise) are required for anything currently live to work.
+Ollama (`ollama serve`, `ollama pull llama3:8b`) is optional — only the AI panel needs it.
 
 ## Conventions
 
 - Deterministic feature extraction stays separate from any narrative text — `_describe_features()`
-  in `audio_analysis.py` produces the strengths/improvements as plain Python threshold rules, not a
-  model call. Don't let an LLM call become the only source of a numeric fact.
+  in `audio_analysis.py` produces the strengths/improvements as plain Python threshold rules. The LLM layer may interpret
+  numbers but must never be the only source of one.
 - No auth, no accounts. SQLite history (`backend/app.db`, gitignored) — ephemeral on Render's free
   tier (wiped on redeploy/idle spin-down), so don't design around it persisting in production.
 - Keep the assistant's tone in generated feedback like a knowledgeable peer, not a grading rubric —

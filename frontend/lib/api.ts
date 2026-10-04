@@ -175,6 +175,40 @@ export async function getFeedback(trackId: string): Promise<CoachFeedbackRespons
   return handle<CoachFeedbackResponse>(res);
 }
 
+export type AiStatus = { available: boolean; model: string };
+
+export async function getAiStatus(): Promise<AiStatus> {
+  const res = await safeFetch(`${API_BASE_URL}/api/coach/ai-status`);
+  return handle<AiStatus>(res);
+}
+
+export type AiInsight = { text: string; model: string; unverified_claims: string[] };
+
+export async function getSectionInsight(trackId: string, segmentIndex: number): Promise<AiInsight> {
+  const res = await safeFetch(`${API_BASE_URL}/api/coach/insight`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track_id: trackId, segment_index: segmentIndex }),
+  });
+  return handle<AiInsight>(res);
+}
+
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+export type AiChatReply = { reply: string; unverified_claims: string[] };
+
+export async function chatAboutSection(
+  trackId: string,
+  segmentIndex: number,
+  messages: ChatTurn[]
+): Promise<AiChatReply> {
+  const res = await safeFetch(`${API_BASE_URL}/api/coach/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track_id: trackId, segment_index: segmentIndex, messages }),
+  });
+  return handle<AiChatReply>(res);
+}
+
 export type CoachHistoryEntry = {
   track_id: string;
   created_at: string;

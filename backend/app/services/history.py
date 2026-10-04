@@ -202,6 +202,26 @@ async def get_coach_context(track_id: str) -> str | None:
     )
 
 
+async def get_coach_feedback(track_id: str) -> CoachFeedbackResponse | None:
+    """One track's saved analysis (features + segments), or None if it was never analyzed."""
+    async with connect() as db:
+        cursor = await db.execute(
+            "SELECT features_json, strengths_json, improvements_json, segments_json "
+            "FROM coach_feedback WHERE track_id = ?",
+            (track_id,),
+        )
+        row = await cursor.fetchone()
+    if row is None:
+        return None
+    return CoachFeedbackResponse(
+        track_id=track_id,
+        features=TrackFeatures(**json.loads(row["features_json"])),
+        strengths=json.loads(row["strengths_json"]),
+        improvements=json.loads(row["improvements_json"]),
+        segments=json.loads(row["segments_json"] or "[]"),
+    )
+
+
 async def list_coach_history(limit: int = 20) -> list[CoachHistoryEntry]:
     async with connect() as db:
         cursor = await db.execute(
