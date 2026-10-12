@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { readThemeColors, type ThemeColors } from "@/lib/themeColors";
 
 type WaveformExplorerProps = {
   file: File;
@@ -19,25 +20,6 @@ const BAR_COUNT = 64;
 // Even a maxed-out reading tops out at this fraction of the panel's height, so a dense/loud
 // section doesn't slam every bar into the ceiling — leaves visible headroom at all times.
 const PEAK_CAP = 0.75;
-
-type ThemeColors = { accent: string; accent2: string; gold: string; ink: string };
-
-/** Canvas fillStyle/strokeStyle need a literal resolved color, unlike regular CSS which can read
- * a `var(--x)` directly — so the current colorway's variables are read here and cached, refreshed
- * whenever ThemeSwitcher fires the "themechange" event (see components/ThemeSwitcher.tsx). */
-function readThemeColors(): ThemeColors {
-  const styles = getComputedStyle(document.documentElement);
-  const rgb = (name: string, fallback: string) => {
-    const value = styles.getPropertyValue(name).trim();
-    return value ? `rgb(${value.replace(/\s+/g, ",")})` : fallback;
-  };
-  return {
-    accent: rgb("--color-accent", "#ff5a36"),
-    accent2: rgb("--color-accent2", "#2dd4bf"),
-    gold: rgb("--color-gold", "#ffb020"),
-    ink: rgb("--color-ink", "#f3eeff"),
-  };
-}
 
 export default function WaveformExplorer({ file, durationSec, onsetTimes, beatTimes }: WaveformExplorerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);

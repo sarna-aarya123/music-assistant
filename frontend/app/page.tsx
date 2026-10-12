@@ -110,6 +110,7 @@ export default function HomePage() {
           <div className="mt-4">
             <SongMap
               trackId={feedback.track_id}
+              track={feedback.features}
               energyCurve={feedback.features.energy_curve}
               segments={feedback.segments}
               durationSec={durationSec}
@@ -152,7 +153,7 @@ export default function HomePage() {
           disabled={!file || loading !== null}
           className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
         >
-          {loading === "upload" || loading === "feedback" ? "Analyzing..." : "Upload & Analyze"}
+          {loading === "upload" ? "Loading waveform..." : loading === "feedback" ? "Creating studio..." : "Upload & Analyze"}
         </button>
         {slow && (
           <p className="mt-3 font-mono text-xs text-muted">
