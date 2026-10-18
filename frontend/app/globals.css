@@ -288,3 +288,21 @@ body > * {
   z-index: 0;
   pointer-events: none;
 }
+
+/* Mood tint — a slight wash of the track's estimated mood color over the page. Remounted (keyed by
+   mood label) so a new track fades its color in instead of snapping. */
+@keyframes mood-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.mood-tint {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: mood-in 1.6s ease-out both;
+  background:
+    radial-gradient(ellipse 80% 55% at 50% 0%, rgb(var(--mood-rgb) / 0.16), transparent 70%),
+    radial-gradient(ellipse 70% 50% at 50% 100%, rgb(var(--mood-rgb) / 0.11), transparent 70%);
+}

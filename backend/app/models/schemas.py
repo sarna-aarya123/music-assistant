@@ -8,7 +8,9 @@ an AI layer can be reconnected later without redesigning the API — but no sche
 imply an AI/Ollama dependency exists today.
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
+
+from app.services.mood import estimate_mood
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +128,25 @@ class TrackFeatures(BaseModel):
     # waveform (see _energy_curve's docstring in audio_analysis.py), but free to produce and reads
     # the same way at this resolution.
     energy_curve: list[float] = []
+    # One reading per second of the whole track, so the frontend can measure any window the user
+    # picks without another request. Empty for history rows saved before these existed.
+    second_loudness_db: list[float] = []
+    second_brightness_hz: list[float] = []
+    second_low_end: list[float] = []
+    second_onsets: list[int] = []
+    # Estimated mood (see app/services/mood.py) — a vibe estimate, not a certainty.
+    mood_label: str = ""
+    mood_energy: float = 0.0
+    mood_tone: float = 0.0
+
+    @model_validator(mode="after")
+    def _fill_mood(self):
+        # History rows saved before mood existed: derive it from the scalar features they do have.
+        if not self.mood_label and self.bpm > 0:
+            self.mood_label, self.mood_energy, self.mood_tone = estimate_mood(
+                self.bpm, self.rms_db, self.brightness_hz, self.onset_density, self.low_end_ratio
+            )
+        return self
 
 
 class SegmentFeatures(BaseModel):

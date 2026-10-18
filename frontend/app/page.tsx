@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   ApiError,
   getCoachHistory,
@@ -10,10 +9,8 @@ import {
   type CoachFeedbackResponse,
   type CoachHistoryEntry,
 } from "@/lib/api";
-import { useCountUp } from "@/lib/useCountUp";
 import { useSlowLoadHint } from "@/lib/useSlowLoadHint";
-import WaveformExplorer from "@/components/WaveformExplorer";
-import SongMap from "@/components/SongMap";
+import Experience from "@/components/Experience";
 
 export default function HomePage() {
   const [file, setFile] = useState<File | null>(null);
@@ -78,61 +75,16 @@ export default function HomePage() {
     setError(null);
   }
 
-  // Once a track's been analyzed, the upload form gets out of the way entirely and the waveform
-  // takes over the page — this bar is the only way back to a fresh upload (there's no separate
-  // "home" to go back to anymore — this page is the whole app).
+  // Once a track's been analyzed, the page becomes the full-screen experience (3D waveform -> studio);
+  // its "New track" button is the way back to a fresh upload.
   if (feedback) {
     return (
-      <div>
-        <div className="mb-4 flex items-center justify-end">
-          <button
-            onClick={reset}
-            className="font-mono text-xs uppercase tracking-widest text-muted transition hover:text-accent2"
-          >
-            Analyze another track
-          </button>
-        </div>
-
-        {analyzedFile ? (
-          <WaveformExplorer
-            file={analyzedFile}
-            durationSec={durationSec}
-            onsetTimes={feedback.features.onset_times}
-            beatTimes={feedback.features.beat_times}
-          />
-        ) : (
-          <div className="hud-panel flex h-[60vh] items-center justify-center border border-border bg-surface p-4 text-center font-mono text-xs text-muted sm:h-[70vh]">
-            No waveform for past entries — analyze a track to see it here.
-          </div>
-        )}
-
-        {feedback.features.energy_curve.length > 0 && (
-          <div className="mt-4">
-            <SongMap
-              trackId={feedback.track_id}
-              track={feedback.features}
-              energyCurve={feedback.features.energy_curve}
-              segments={feedback.segments}
-              durationSec={durationSec}
-            />
-          </div>
-        )}
-
-        <div className="mt-4 hud-panel border border-border bg-surface p-4">
-          <h3 className="mb-2 font-mono text-xs uppercase tracking-widest text-accent2">Stats</h3>
-          <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-3">
-            <StatRow label="BPM" value={feedback.features.bpm} />
-            <StatRow label="Key" value={feedback.features.key} />
-            <StatRow label="Loudness" value={`${feedback.features.rms_db} dB`} />
-            <StatRow label="Brightness" value={`${Math.round(feedback.features.brightness_hz)} Hz`} />
-            <StatRow label="Rolloff" value={`${Math.round(feedback.features.rolloff_hz)} Hz`} />
-            <StatRow label="Zero-Crossing Rate" value={feedback.features.zero_crossing_rate} />
-            <StatRow label="Dynamic Range" value={`${feedback.features.dynamic_range_db} dB`} />
-            <StatRow label="Low-End Ratio" value={`${Math.round(feedback.features.low_end_ratio * 100)}%`} />
-            <StatRow label="Onset Density" value={`${feedback.features.onset_density}/s`} />
-          </dl>
-        </div>
-      </div>
+      <Experience
+        features={feedback.features}
+        durationSec={durationSec}
+        file={analyzedFile}
+        onExit={reset}
+      />
     );
   }
 
@@ -189,17 +141,6 @@ export default function HomePage() {
           </ul>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatRow({ label, value }: { label: string; value: string | number }) {
-  const animated = useCountUp(typeof value === "number" ? value : 0);
-  const display = typeof value === "number" ? Math.round(animated * 100) / 100 : value;
-  return (
-    <div className="flex items-center justify-between border-b border-border/40 py-1.5 font-mono text-xs last:border-0">
-      <span className="uppercase tracking-widest text-muted">{label}</span>
-      <span className="font-semibold text-accent2">{display}</span>
     </div>
   );
 }

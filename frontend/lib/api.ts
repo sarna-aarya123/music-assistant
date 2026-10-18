@@ -131,6 +131,16 @@ export type TrackFeatures = {
   onset_times: number[];
   beat_times: number[];
   energy_curve: number[];
+  // One reading per second of the whole track — any window the user picks is measured from these.
+  // Empty for history entries saved before they existed.
+  second_loudness_db: number[];
+  second_brightness_hz: number[];
+  second_low_end: number[];
+  second_onsets: number[];
+  // Estimated vibe (not a certainty) — see backend app/services/mood.py.
+  mood_label: string;
+  mood_energy: number;
+  mood_tone: number;
 };
 
 export type SegmentFeatures = {

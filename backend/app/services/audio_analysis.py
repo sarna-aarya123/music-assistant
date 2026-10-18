@@ -19,6 +19,7 @@ import numpy as np
 
 from app.models.schemas import ChatMessage, CoachFeedbackResponse, SegmentFeatures, TrackFeatures, TrackSegment
 from app.services import history, ollama_client
+from app.services.mood import estimate_mood
 
 # Krumhansl-Kessler key profiles — same approach as the MIDI Analyzer, applied to a chroma
 # spectrogram instead of a MIDI pitch-class histogram.
@@ -148,6 +149,16 @@ def _spectral_features(y: np.ndarray, sr: int) -> dict:
         float(np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, S=stft, hop_length=_SPECTRAL_HOP_LENGTH))), 1
     )
     low_end_ratio = _low_end_ratio(stft, freqs)
+    # Per-frame version of the same ratio (1D, a few thousand floats) so any time window — not just
+    # the whole track — can report its own low-end share.
+    energy_frames = stft**2
+    frame_total = energy_frames.sum(axis=0)
+    low_end_frames = np.divide(
+        energy_frames[freqs < _LOW_END_CUTOFF_HZ, :].sum(axis=0),
+        frame_total,
+        out=np.zeros_like(frame_total),
+        where=frame_total > 0,
+    )
 
     return {
         "key": key,
@@ -155,6 +166,7 @@ def _spectral_features(y: np.ndarray, sr: int) -> dict:
         "rolloff_hz": rolloff_hz,
         "low_end_ratio": low_end_ratio,
         "centroid_frames": centroid_frames,
+        "low_end_frames": low_end_frames,
     }
 
 
@@ -187,6 +199,41 @@ def _energy_curve(rms: np.ndarray) -> list[float]:
     if peak <= 0:
         return [0.0] * len(curve)
     return [round(float(v / peak), 3) for v in curve]
+
+
+def _per_second_curves(
+    rms: np.ndarray,
+    centroid: np.ndarray,
+    low_end_frames: np.ndarray,
+    onset_times: list[float],
+    sr: int,
+    hop_length: int,
+    duration_sec: float,
+) -> dict:
+    """One reading per second of loudness (dB), brightness (Hz), low-end share (0-1) and onset
+    count — all binned from frame arrays that already exist, so this costs no extra audio pass.
+    It's what lets the frontend measure *any* window the user picks, instantly and without another
+    request: the server only has to analyze the track once."""
+    fps = sr / hop_length
+    n_seconds = max(1, int(math.ceil(duration_sec)))
+    loud, bright, low_end, onsets = [], [], [], []
+    onset_arr = np.asarray(onset_times, dtype=float)
+    for sec in range(n_seconds):
+        a, b = int(round(sec * fps)), max(int(round((sec + 1) * fps)), int(round(sec * fps)) + 1)
+        r = rms[a:b]
+        mean_rms = float(np.mean(r)) if len(r) else 0.0
+        loud.append(round(20 * math.log10(mean_rms), 1) if mean_rms > 0 else -80.0)
+        c = centroid[a:b]
+        bright.append(round(float(np.mean(c)), 1) if len(c) else 0.0)
+        low = low_end_frames[a:b]
+        low_end.append(round(float(np.mean(low)), 3) if len(low) else 0.0)
+        onsets.append(int(np.count_nonzero((onset_arr >= sec) & (onset_arr < sec + 1))))
+    return {
+        "second_loudness_db": loud,
+        "second_brightness_hz": bright,
+        "second_low_end": low_end,
+        "second_onsets": onsets,
+    }
 
 
 def _detect_segment_boundaries(rms: np.ndarray, centroid: np.ndarray, sr: int, hop_length: int, duration_sec: float) -> list[float]:
@@ -390,6 +437,13 @@ def _extract(file_path: Path) -> dict:
             "beat_times": [],
             "segments": [],
             "energy_curve": [],
+            "second_loudness_db": [],
+            "second_brightness_hz": [],
+            "second_low_end": [],
+            "second_onsets": [],
+            "mood_label": "",
+            "mood_energy": 0.0,
+            "mood_tone": 0.0,
         }
 
     # `beat_track` and `onset_detect` each independently build an onset-strength envelope from
@@ -437,7 +491,18 @@ def _extract(file_path: Path) -> dict:
         y, sr, boundary_times, duration_sec, onset_times, spectral["centroid_frames"], _SPECTRAL_HOP_LENGTH, whole_track
     )
 
+    curves = _per_second_curves(
+        rms, spectral["centroid_frames"], spectral["low_end_frames"], onset_times, sr, _SPECTRAL_HOP_LENGTH, duration_sec
+    )
+    mood_label, mood_energy, mood_tone = estimate_mood(
+        round(bpm, 1), rms_db, spectral["brightness_hz"], onset_density, spectral["low_end_ratio"]
+    )
+
     return {
+        **curves,
+        "mood_label": mood_label,
+        "mood_energy": mood_energy,
+        "mood_tone": mood_tone,
         "duration_sec": duration_sec,
         "bpm": round(bpm, 1),
         "key": spectral["key"],
@@ -551,6 +616,13 @@ async def generate_feedback(track_id: str, file_path: Path) -> CoachFeedbackResp
         onset_times=raw["onset_times"],
         beat_times=raw["beat_times"],
         energy_curve=raw["energy_curve"],
+        second_loudness_db=raw["second_loudness_db"],
+        second_brightness_hz=raw["second_brightness_hz"],
+        second_low_end=raw["second_low_end"],
+        second_onsets=raw["second_onsets"],
+        mood_label=raw["mood_label"],
+        mood_energy=raw["mood_energy"],
+        mood_tone=raw["mood_tone"],
     )
 
     strengths, improvements = _describe_features(features, raw["duration_sec"])

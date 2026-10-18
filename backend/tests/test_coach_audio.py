@@ -110,6 +110,13 @@ def test_upload_and_feedback_normal_audio_preserves_contract(client):
         "onset_times",
         "beat_times",
         "energy_curve",
+        "second_loudness_db",
+        "second_brightness_hz",
+        "second_low_end",
+        "second_onsets",
+        "mood_label",
+        "mood_energy",
+        "mood_tone",
     }
     assert set(feedback_body["features"]) == expected_feature_keys
 
@@ -211,7 +218,7 @@ def test_spectral_features_helper_returns_expected_shape(tmp_path):
 
     result = _spectral_features(y, sr)
 
-    assert set(result) == {"key", "brightness_hz", "rolloff_hz", "low_end_ratio", "centroid_frames"}
+    assert set(result) == {"key", "brightness_hz", "rolloff_hz", "low_end_ratio", "centroid_frames", "low_end_frames"}
     assert result["key"] != ""
     assert result["brightness_hz"] >= 0.0
     assert result["rolloff_hz"] >= 0.0
