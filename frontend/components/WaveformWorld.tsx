@@ -2,21 +2,20 @@
 
 import { Suspense, useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { Environment, Html } from "@react-three/drei";
+import { ContactShadows, Environment } from "@react-three/drei";
 import * as THREE from "three";
 import type { ThemeColors } from "@/lib/themeColors";
 import { fmtTime, windowAround, type TimeWindow } from "@/lib/windowStats";
-import { RoomShell, Shadowed, Speaker } from "@/components/StudioParts";
+import { Projector, type Anchor, type AnchorEls } from "@/components/anchors";
 
 const WORLD_WIDTH = 36; // world units the whole track spans
 const MAX_HEIGHT = 7; // tallest bar
-const PLINTH_H = 1.2; // the wooden console the bars stand on; its top is y = 0
+const PLINTH_H = 1.4; // the desk the bars stand on; its top is y = 0
 const FLOOR_Y = -PLINTH_H;
-const ROOM_SCALE = 3; // the shared studio shell, scaled up so it frames the whole waveform
 // Even the loudest second only fills this fraction of MAX_HEIGHT — leaves visible headroom.
 const PEAK_CAP = 0.88;
-// Wider than the waveform itself, so the monitors on either side stay in frame.
-const FRAME_WIDTH = WORLD_WIDTH + 12;
+// A little wider than the waveform itself, so the desk's ends stay in frame.
+const FRAME_WIDTH = WORLD_WIDTH + 8;
 export const DIVE_MS = 1400;
 
 type Props = {
@@ -97,17 +96,17 @@ function Bars({
     const span = Math.max(6, hi - lo);
     return loudnessDb.map((db) => (0.12 + 0.88 * Math.min(1, Math.max(0, (db - lo) / span))) * MAX_HEIGHT * PEAK_CAP);
   }, [loudnessDb]);
-  // Ink-black slats; the brighter the second sounds, the lighter the ink. A trace of the mood color.
+  // Bone slats; the brighter the second sounds, the lighter the slat. Picked slats go burnt orange.
   const accent = useMemo(() => new THREE.Color(colors.accent), [colors.accent]);
   const baseColors = useMemo(() => {
-    const ink = new THREE.Color(colors.ink);
-    const pale = new THREE.Color(colors.muted);
+    const bone = new THREE.Color(colors.bone);
+    const dim = new THREE.Color(colors.bone).multiplyScalar(0.62);
     const m = mood ? new THREE.Color(mood) : null;
     return brightnessHz.map((hz) => {
-      const c = ink.clone().lerp(pale, Math.min(1, Math.max(0, (hz - 1000) / 3000)) * 0.5);
-      return m ? c.lerp(m, 0.05) : c;
+      const c = dim.clone().lerp(bone, Math.min(1, Math.max(0, (hz - 1000) / 3000)));
+      return m ? c.lerp(m, 0.06) : c;
     });
-  }, [brightnessHz, colors.ink, colors.muted, mood]);
+  }, [brightnessHz, colors.bone, mood]);
   const tmp = useMemo(() => new THREE.Color(), []);
   const lift = useRef(new Float32Array(n));
 
@@ -116,6 +115,9 @@ function Bars({
     if (!m) return;
     const t = state.clock.elapsedTime;
     const win = picked ?? hover.current;
+    // Taller bars on narrow screens, where the waveform would otherwise sit small in a lot of void.
+    const aspect = state.size.width / Math.max(1, state.size.height);
+    const tall = 1 + Math.max(0, 1.3 - aspect) * 2.2;
     for (let i = 0; i < n; i++) {
       const sec = ((i + 0.5) / n) * durationSec;
       const inWin = win ? sec >= win.start && sec < win.end : false;
@@ -125,7 +127,7 @@ function Bars({
       // Rise out of the console on load, staggered left to right.
       const grow = Math.min(1, Math.max(0, (t - i * 0.006) / 0.8));
       const eased = 1 - Math.pow(1 - grow, 3);
-      const h = Math.max(0.001, heights[i] * eased * (1 + l * 0.08));
+      const h = Math.max(0.001, heights[i] * eased * tall * (1 + l * 0.08));
       dummy.position.set(timeToX(sec, durationSec), h / 2, 0);
       dummy.scale.set(pitch * 0.84, h, 1.1 + l * 0.8);
       dummy.updateMatrix();
@@ -140,7 +142,7 @@ function Bars({
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, n]} frustumCulled={false} castShadow receiveShadow>
       <boxGeometry args={[1, 1, 1]} />
-      <meshStandardMaterial roughness={0.62} metalness={0} envMapIntensity={0.3} />
+      <meshStandardMaterial roughness={0.7} metalness={0} />
     </instancedMesh>
   );
 }
@@ -195,61 +197,44 @@ function SelectionBand({
   );
 }
 
-/** The wooden console the waveform stands on, with a ruler along its front edge: a tick every
- * 10 seconds, a label every 30. */
-function Console({ durationSec, colors }: { durationSec: number; colors: ThemeColors }) {
+/** The long desk the waveform stands on: a charcoal top on grey metal legs, like the office desk in
+ * the studio close-up, with a ruler painted along its front edge (a tick every 10 seconds, a label
+ * every 30). */
+function Desk({ durationSec }: { durationSec: number }) {
   const ticks = useMemo(() => {
     const out: number[] = [];
     for (let t = 0; t <= durationSec; t += 10) out.push(t);
     return out;
   }, [durationSec]);
-  const depth = 3.4;
+  const depth = 3.2;
+  const topH = 0.22;
+  const legInset = WORLD_WIDTH / 2 + 0.6;
 
   return (
     <group>
-      <mesh position={[0, -PLINTH_H / 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[WORLD_WIDTH + 3, PLINTH_H, depth]} />
-        <meshStandardMaterial color="#c9a97c" roughness={0.5} />
+      <mesh position={[0, -topH / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[WORLD_WIDTH + 3, topH, depth]} />
+        <meshStandardMaterial color="#2b2b2e" roughness={0.6} />
       </mesh>
-      {/* dark inlay along the top, where the bars stand */}
-      <mesh position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[WORLD_WIDTH + 1.2, 1.8]} />
-        <meshStandardMaterial color="#2a2118" roughness={0.7} />
+      {[-legInset, legInset].map((x) =>
+        [-depth / 2 + 0.2, depth / 2 - 0.2].map((z) => (
+          <mesh key={`${x}${z}`} position={[x, -topH - (PLINTH_H - topH) / 2, z]} castShadow receiveShadow>
+            <boxGeometry args={[0.24, PLINTH_H - topH, 0.24]} />
+            <meshStandardMaterial color="#8d8e90" roughness={0.45} metalness={0.7} />
+          </mesh>
+        ))
+      )}
+      {/* a stretcher bar between the legs */}
+      <mesh position={[0, -PLINTH_H + 0.3, 0]} castShadow>
+        <boxGeometry args={[WORLD_WIDTH + 1.2, 0.12, 0.12]} />
+        <meshStandardMaterial color="#8d8e90" roughness={0.45} metalness={0.7} />
       </mesh>
       {ticks.map((t) => (
-        <mesh key={t} position={[timeToX(t, durationSec), -0.35, depth / 2 + 0.005]}>
-          <planeGeometry args={[0.05, t % 30 === 0 ? 0.55 : 0.28]} />
-          <meshBasicMaterial color={colors.ink} />
+        <mesh key={t} position={[timeToX(t, durationSec), -0.07, depth / 2 + 0.005]}>
+          <planeGeometry args={[0.05, t % 30 === 0 ? 0.13 : 0.07]} />
+          <meshBasicMaterial color="#e6e1d6" />
         </mesh>
       ))}
-      {ticks
-        .filter((t) => t % 30 === 0)
-        .map((t) => (
-          <Html key={t} position={[timeToX(t, durationSec), -0.9, depth / 2 + 0.05]} center style={{ pointerEvents: "none" }}>
-            <span className="num select-none font-display text-lg italic text-ink/80">{fmtTime(t)}</span>
-          </Html>
-        ))}
-    </group>
-  );
-}
-
-/** A monitor on a stand, flanking the console. */
-function MonitorOnStand({ x }: { x: number }) {
-  return (
-    <group position={[x, FLOOR_Y, -1.2]}>
-      <Shadowed>
-        <mesh position={[0, 0.06, 0]}>
-          <cylinderGeometry args={[0.9, 1.0, 0.12, 32]} />
-          <meshStandardMaterial color="#1b1b1d" roughness={0.5} metalness={0.2} />
-        </mesh>
-        <mesh position={[0, 1.4, 0]}>
-          <cylinderGeometry args={[0.1, 0.1, 2.8, 16]} />
-          <meshStandardMaterial color="#1b1b1d" roughness={0.5} metalness={0.2} />
-        </mesh>
-        <group position={[0, 4.2, 0]} scale={2.1} rotation={[0, x < 0 ? 0.35 : -0.35, 0]}>
-          <Speaker loudness01={0.45} />
-        </group>
-      </Shadowed>
     </group>
   );
 }
@@ -266,6 +251,24 @@ export default function WaveformWorld({
 }: Props) {
   const hover = useRef<TimeWindow | null>(null);
   const lastSecond = useRef(-1);
+  const els = useRef<Record<string, HTMLElement | null>>({}) as AnchorEls;
+  // A time label every 30 seconds along the front of the desk, drawn as page elements that follow
+  // their points in the scene.
+  const labelTimes = useMemo(() => {
+    const out: number[] = [];
+    for (let t = 0; t <= durationSec; t += 30) out.push(t);
+    return out;
+  }, [durationSec]);
+  const anchors = useMemo<Anchor[]>(
+    () => labelTimes.map((t) => ({ id: `t-${t}`, world: [timeToX(t, durationSec), -0.42, 1.7], align: "center" })),
+    [labelTimes, durationSec]
+  );
+  // The seamless backdrop picks up a faint trace of the track's mood.
+  const backdrop = useMemo(() => {
+    const c = new THREE.Color(colors.void);
+    if (mood) c.lerp(new THREE.Color(mood), 0.05);
+    return c;
+  }, [colors.void, mood]);
 
   useEffect(() => {
     return () => {
@@ -285,42 +288,42 @@ export default function WaveformWorld({
   }
 
   return (
+    <div className="relative h-full w-full">
     <Canvas
-      camera={{ position: [0, 3.6, 50], fov: 42 }}
+      camera={{ position: [0, 3.6, 50], fov: 35 }}
       dpr={[1, 2]}
       shadows
-      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
+      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}
     >
-      <color attach="background" args={[colors.background]} />
+      <color attach="background" args={[backdrop]} />
+      <fog attach="fog" args={[backdrop, 70, 190]} />
       <Suspense fallback={null}>
-        <Environment files="/hdri/studio.hdr" environmentIntensity={0.7} />
+        <Environment files="/hdri/studio.hdr" environmentIntensity={0.9} />
       </Suspense>
-      {/* Key light "through the window" on the left: warm, low, casting long soft shadows. */}
       <directionalLight
-        position={[-24, 16, 12]}
-        intensity={2.6}
-        color="#ffefd6"
+        position={[-18, 22, 16]}
+        intensity={1.7}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-34}
         shadow-camera-right={34}
         shadow-camera-top={20}
-        shadow-camera-bottom={-12}
+        shadow-camera-bottom={-14}
         shadow-camera-near={1}
         shadow-camera-far={90}
         shadow-bias={-0.0004}
         shadow-radius={5}
       />
       <CameraRig durationSec={durationSec} diveTo={diveTo} />
+      <Projector anchors={anchors} els={els} />
 
-      <group position={[0, FLOOR_Y, 0]}>
-        <RoomShell colors={colors} s={ROOM_SCALE} />
-      </group>
-      <Console durationSec={durationSec} colors={colors} />
-      <Suspense fallback={null}>
-        <MonitorOnStand x={-(WORLD_WIDTH / 2 + 4.2)} />
-        <MonitorOnStand x={WORLD_WIDTH / 2 + 4.2} />
-      </Suspense>
+      {/* Seamless floor: the same grey as the backdrop, so there is no horizon. */}
+      <mesh position={[0, FLOOR_Y, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[600, 600]} />
+        <meshStandardMaterial color={backdrop} roughness={1} />
+      </mesh>
+      <ContactShadows position={[0, FLOOR_Y + 0.002, 0]} opacity={0.45} scale={70} blur={2.6} far={3} resolution={1024} />
+      <Desk durationSec={durationSec} />
 
       <Bars
         loudnessDb={loudnessDb}
@@ -361,5 +364,19 @@ export default function WaveformWorld({
         <meshBasicMaterial />
       </mesh>
     </Canvas>
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {labelTimes.map((t) => (
+        <div
+          key={t}
+          ref={(el) => {
+            els.current[`t-${t}`] = el;
+          }}
+          className="absolute left-0 top-0 opacity-0"
+        >
+          <span className="whitespace-nowrap bg-black px-1.5 py-0.5 text-[11px] leading-none text-white">{fmtTime(t)}</span>
+        </div>
+      ))}
+    </div>
+    </div>
   );
 }

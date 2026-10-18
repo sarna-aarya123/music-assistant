@@ -15,7 +15,7 @@ export type WindowStats = {
   swingDb: number;
 };
 
-export type StudioObjectId = "mic" | "speaker" | "amp" | "mixer";
+export type StudioObjectId = "cassette" | "radio" | "boombox" | "tv";
 
 export type StudioReading = {
   title: string;
@@ -79,10 +79,10 @@ const signed = (n: number, digits = 1) => `${n >= 0 ? "+" : "−"}${Math.abs(n).
 /** Real, window-specific reading for each clickable studio object, each compared against the same
  * measurement taken over the whole track. */
 export function readObject(id: StudioObjectId, win: WindowStats, track: WindowStats): StudioReading {
-  if (id === "mic") {
+  if (id === "cassette") {
     const d = win.loudnessDb - track.loudnessDb;
     return {
-      title: "Microphone",
+      title: "Cassette recorder",
       subject: "Loudness",
       stats: [
         { label: "This section", value: `${win.loudnessDb} dB` },
@@ -98,11 +98,11 @@ export function readObject(id: StudioObjectId, win: WindowStats, track: WindowSt
     };
   }
 
-  if (id === "speaker") {
+  if (id === "radio") {
     const d = win.brightnessHz - track.brightnessHz;
     return {
-      title: "Studio Monitor",
-      subject: "Mix brightness",
+      title: "Radio",
+      subject: "Tone",
       stats: [
         { label: "This section", value: `${win.brightnessHz} Hz` },
         { label: "Track average", value: `${track.brightnessHz} Hz` },
@@ -117,10 +117,10 @@ export function readObject(id: StudioObjectId, win: WindowStats, track: WindowSt
     };
   }
 
-  if (id === "amp") {
+  if (id === "boombox") {
     const pp = (win.lowEnd - track.lowEnd) * 100;
     return {
-      title: "Amp",
+      title: "Boombox",
       subject: "Low-end weight",
       stats: [
         { label: "This section", value: `${Math.round(win.lowEnd * 100)}%` },
@@ -138,7 +138,7 @@ export function readObject(id: StudioObjectId, win: WindowStats, track: WindowSt
 
   const d = win.swingDb - track.swingDb;
   return {
-    title: "Mixer",
+    title: "TV",
     subject: "Level movement",
     stats: [
       { label: "This section", value: `${win.swingDb} dB` },

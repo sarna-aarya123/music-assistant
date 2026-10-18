@@ -89,69 +89,60 @@ export default function HomePage() {
   }
 
   return (
-    <div>
+    <div className="flex min-h-screen items-center justify-center p-6">
       {loading && <LoadingScreen stage={loading} slow={slow} />}
 
-      <div className="grid gap-12 md:grid-cols-[1.15fr_1fr] md:items-end">
-        <div className="animate-fade-up">
-          <h1 className="font-display text-6xl leading-[0.95] sm:text-7xl">
-            Hear what your beat is <em>doing</em>.
-          </h1>
-          <p className="mt-6 max-w-md text-lg text-muted">
-            Upload a track and see its whole shape. Pick any 30 seconds and step inside to see what is
-            happening in it: how loud, how bright, how heavy the low end.
-          </p>
-        </div>
+      <div className="w-full max-w-md space-y-5">
+        <div className="border-2 border-white p-6">
+          <h1 className="font-bold">AI MUSIC ASSISTANT</h1>
+          <p className="mt-4">Upload a beat. See the shape of the whole track, then step into any 30 seconds of it.</p>
 
-        <div className="animate-fade-up border border-ink/80 bg-surface p-6 [animation-delay:120ms]">
-          <label className="block cursor-pointer">
-            <span className="block text-sm text-muted">Your track</span>
-            <span className="mt-1 block font-display text-3xl leading-tight">
-              {file ? file.name : "Choose a file"}
-            </span>
-            <input
-              type="file"
-              accept=".wav,.mp3,.m4a,.flac,.aiff"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="sr-only"
-            />
-            <span className="mt-1 block text-sm text-muted">WAV, MP3, M4A, FLAC or AIFF, up to 50 MB</span>
-          </label>
+          <div className="mt-6">
+            <label className="inline-block cursor-pointer border border-white px-4 py-2 transition hover:bg-white hover:text-black">
+              [ choose file ]
+              <input
+                type="file"
+                accept=".wav,.mp3,.m4a,.flac,.aiff"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                className="sr-only"
+              />
+            </label>
+            <p className="mt-3 break-all text-white/60">{file ? file.name : "wav, mp3, m4a, flac or aiff. up to 50 MB."}</p>
+          </div>
+
           <button
             onClick={handleUploadAndAnalyze}
             disabled={!file || loading !== null}
-            className="mt-6 w-full bg-accent px-5 py-3 text-[15px] font-medium text-surface transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-accent"
+            className="mt-6 w-full bg-accent px-4 py-2.5 font-bold text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-accent"
           >
-            Analyze this track
+            analyze
           </button>
         </div>
+
+        {error && <p className="border border-accent p-3 text-accent">{error}</p>}
+
+        {history.length > 0 && (
+          <div className="border border-white/60 p-4">
+            <p className="text-white/60">recent</p>
+            <ul className="mt-2">
+              {history.map((entry) => (
+                <li key={entry.track_id}>
+                  <button
+                    onClick={() => loadHistoryEntry(entry)}
+                    disabled={loading !== null}
+                    className="flex w-full items-baseline justify-between gap-3 py-1 text-left transition hover:text-accent disabled:opacity-40"
+                  >
+                    <span className="truncate">&gt; {entry.filename}</span>
+                    <span className="shrink-0 text-white/50">
+                      {Math.floor(entry.duration_sec / 60)}:{String(Math.round(entry.duration_sec % 60)).padStart(2, "0")}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
-
-      {error && <p className="mt-8 border-l-2 border-accent pl-4 text-accent">{error}</p>}
-
-      {history.length > 0 && (
-        <section className="mt-20">
-          <h2 className="font-display text-3xl">Recent</h2>
-          <ul className="mt-4 border-t border-ink/20">
-            {history.map((entry) => (
-              <li key={entry.track_id} className="border-b border-ink/20">
-                <button
-                  onClick={() => loadHistoryEntry(entry)}
-                  disabled={loading !== null}
-                  className="flex w-full items-baseline justify-between gap-4 py-3 text-left transition hover:text-accent disabled:opacity-40"
-                >
-                  <span className="truncate font-display text-2xl">{entry.filename}</span>
-                  <span className="num shrink-0 text-sm text-muted">
-                    {Math.floor(entry.duration_sec / 60)}:{String(Math.round(entry.duration_sec % 60)).padStart(2, "0")}
-                    {" · "}
-                    {new Date(entry.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   );
 }

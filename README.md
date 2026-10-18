@@ -12,12 +12,13 @@ to a minute while the free-tier server wakes up.
   ratio, onset density, plus beat and onset timestamps. All computed in Python with `librosa`, and
   re-sampled to one reading per second (loudness, brightness, low-end share, onsets) so any span of
   the track can be measured instantly in the browser.
-- **3D waveform in a studio** — the whole track as a row of bars standing on a wooden console in a
-  control room. Hover to preview any 30 seconds, click to pick it.
-- **Studio close-up** — the camera dives into the picked span and into the studio desk. Click the
-  microphone (loudness), monitor (brightness), amp (low-end weight) or mixer (how much the level
-  moves) for that span's own numbers, compared against the whole track. A "Play this section"
-  button plays the 30 seconds.
+- **3D waveform** — the whole track as a row of bone-white slats standing on a long desk in a
+  seamless grey room. Hover to preview any 30 seconds, click to pick it.
+- **Desk close-up** — the camera dives into the picked span and onto a retro desk built from
+  photo-scanned props. Click the cassette recorder (loudness), radio (tone), boombox (low-end
+  weight) or TV (how much the level moves) for that span's own numbers, compared against the whole
+  track. The TV's screen draws the span's loudness curve. A "play this section" button plays the
+  30 seconds.
 - **Estimated mood** — energy and tone are scored from the measurements and give the screen a slight
   tint. It is an estimate, and deliberately does not use major/minor key.
 - **Local AI (backend only for now)** — with [Ollama](https://ollama.com) running locally, the
@@ -51,14 +52,17 @@ to a minute while the free-tier server wakes up.
    mood, so any span the user picks is measured in the browser with no extra request.
 10. **3D waveform and studio** — replaced the section map with a full-screen 3D waveform where
     any 30 seconds can be picked, and a studio close-up where each piece of gear reports on that span.
-11. **New visual identity** — dropped the neon look for paper-and-ink styling with a new type system,
-    and set both the waveform and the studio in the same daylight control room.
+11. **New visual identity** — dropped the neon look, then the paper-and-ink look, for a black
+    typewriter interface (Courier Prime, small black label chips) around a photo-scanned retro desk
+    on a seamless grey backdrop. Replaced the library that placed labels inside the 3D scene with a
+    small projector that moves normal page elements, which fixed teardown errors under React 19.
 
 ## Credits
 
-- **Lighting and props** (CC0): the desk lamp, folding stool and studio lighting map are from
-  [Poly Haven](https://polyhaven.com).
-- **Fonts** (SIL Open Font License): Instrument Serif and Instrument Sans.
+- **Props and lighting** (all CC0, from [Poly Haven](https://polyhaven.com)): metal office desk,
+  modern arm chair, Television 01, boombox, cassette player, vintage radio transceiver, potted
+  plant 01, desk lamp arm 01, and the PAV Studio 03 lighting map.
+- **Font** (SIL Open Font License): Courier Prime.
 
 ## Run it locally
 

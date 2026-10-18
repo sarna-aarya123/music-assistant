@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
-const BARS = 56;
-// Fixed, deterministic bar heights: a waveform-ish silhouette that's identical on every render.
-const HEIGHTS = Array.from({ length: BARS }, (_, i) => 0.22 + 0.78 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.53)));
+const BAR = 24;
 
-/** Full-screen loading state: ink bars rise and fall like a waveform being drawn, with a caption
- * for whichever stage the analysis is on. */
+/** Full-screen boot log: each stage of the analysis is a line that resolves to "ok" when it's done. */
 export default function LoadingScreen({ stage, slow }: { stage: "upload" | "feedback"; slow: boolean }) {
-  const caption = stage === "upload" ? "Loading waveform" : "Creating studio";
+  // A block bar that fills and wraps, so the screen always shows something moving.
+  const [filled, setFilled] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFilled((n) => (n + 1) % (BAR + 1)), 110);
+    return () => clearInterval(id);
+  }, []);
+
   // Nothing behind the loading screen should scroll.
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -18,26 +21,28 @@ export default function LoadingScreen({ stage, slow }: { stage: "upload" | "feed
       document.body.style.overflow = prev;
     };
   }, []);
+
+  const bar = "█".repeat(filled) + "░".repeat(BAR - filled);
+
   return (
-    <div className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-background px-6">
-      <div className="flex h-40 items-center gap-[5px]" aria-hidden>
-        {HEIGHTS.map((h, i) => (
-          <span
-            key={i}
-            className="block w-[3px] origin-center animate-ink-rise bg-ink"
-            style={{ height: `${h * 100}%`, animationDelay: `${(i % 14) * 80 + Math.floor(i / 14) * 40}ms` }}
-          />
-        ))}
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black p-6 text-white">
+      <div className="w-full max-w-md border-2 border-white p-6" role="status">
+        <p className="font-bold">AI MUSIC ASSISTANT</p>
+        <div className="mt-5 space-y-1">
+          <p>
+            &gt; loading waveform {stage === "feedback" ? <span>... ok</span> : <span className="cursor" />}
+          </p>
+          <p className={stage === "feedback" ? "" : "text-white/30"}>
+            &gt; creating studio {stage === "feedback" && <span className="cursor" />}
+          </p>
+        </div>
+        <p className="mt-5 text-accent">{bar}</p>
+        {slow && (
+          <p className="mt-5 text-white/60">
+            still working. the free server can take up to a minute to wake up if it has been idle.
+          </p>
+        )}
       </div>
-      <p key={caption} role="status" className="mt-10 animate-caption-in font-display text-4xl italic sm:text-5xl">
-        {caption}…
-      </p>
-      <p className="num mt-2 text-sm text-muted">Step {stage === "upload" ? 1 : 2} of 2</p>
-      {slow && (
-        <p className="mt-8 max-w-sm text-center text-sm text-muted">
-          Still working. The free server can take up to a minute to wake up if it has been idle.
-        </p>
-      )}
     </div>
   );
 }

@@ -1,17 +1,12 @@
 import type { Metadata } from "next";
-import { Instrument_Sans, Instrument_Serif } from "next/font/google";
+import { Courier_Prime } from "next/font/google";
 import "./globals.css";
 
-const displayFont = Instrument_Serif({
+// A real typewriter face, used for everything — labels, screens and body alike.
+const monoFont = Courier_Prime({
   subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
-  variable: "--font-display",
-});
-
-const sansFont = Instrument_Sans({
-  subsets: ["latin"],
-  variable: "--font-sans",
+  weight: ["400", "700"],
+  variable: "--font-mono",
 });
 
 export const metadata: Metadata = {
@@ -21,13 +16,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${displayFont.variable} ${sansFont.variable}`}>
-      <body className="min-h-screen">
-        <header className="mx-auto flex max-w-5xl items-baseline justify-between px-6 pt-8">
-          <span className="font-display text-2xl">AI Music Assistant</span>
-        </header>
-        <main className="mx-auto max-w-5xl px-6 pb-20 pt-10 sm:pt-16">{children}</main>
-      </body>
+    <html lang="en" className={monoFont.variable}>
+      <body className="min-h-screen">{children}</body>
     </html>
   );
 }
