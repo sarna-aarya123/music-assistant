@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { useSlowLoadHint } from "@/lib/useSlowLoadHint";
 import Experience from "@/components/Experience";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function HomePage() {
   const [file, setFile] = useState<File | null>(null);
@@ -21,8 +22,7 @@ export default function HomePage() {
   const [analyzedFile, setAnalyzedFile] = useState<File | null>(null);
   // Duration of the currently-shown track — set on a fresh analysis (from the upload response) or
   // when loading a history entry (which carries its own duration_sec at the top level, separate
-  // from `feedback.features`). Used by both WaveformExplorer (fresh analysis only) and SongMap
-  // (either source) for time<->position math.
+  // from `feedback.features`). Drives the time<->position math in the experience.
   const [durationSec, setDurationSec] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<"upload" | "feedback" | null>(null);
@@ -64,7 +64,7 @@ export default function HomePage() {
   function loadHistoryEntry(entry: CoachHistoryEntry) {
     setError(null);
     setFeedback(entry.feedback);
-    setAnalyzedFile(null); // no in-browser bytes for a past entry — waveform explorer needs those
+    setAnalyzedFile(null); // no in-browser bytes for a past entry, so no audio playback
     setDurationSec(entry.duration_sec);
   }
 
@@ -90,56 +90,67 @@ export default function HomePage() {
 
   return (
     <div>
-      <h1 className="glitch-text mb-2 font-display text-3xl uppercase tracking-wide">AI Music Assistant</h1>
-      <p className="mb-6 text-muted">Upload a song and get feedback.</p>
+      {loading && <LoadingScreen stage={loading} slow={slow} />}
 
-      <div className="hud-panel border border-border bg-surface p-6">
-        <input
-          type="file"
-          accept=".wav,.mp3,.m4a,.flac,.aiff"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="mb-4 block w-full font-mono text-sm text-muted"
-        />
-        <button
-          onClick={handleUploadAndAnalyze}
-          disabled={!file || loading !== null}
-          className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide transition hover:shadow-glow disabled:opacity-40 disabled:hover:shadow-none"
-        >
-          {loading === "upload" ? "Loading waveform..." : loading === "feedback" ? "Creating studio..." : "Upload & Analyze"}
-        </button>
-        {slow && (
-          <p className="mt-3 font-mono text-xs text-muted">
-            Still working — the free-tier server can take up to a minute to wake up if it's been idle.
+      <div className="grid gap-12 md:grid-cols-[1.15fr_1fr] md:items-end">
+        <div className="animate-fade-up">
+          <h1 className="font-display text-6xl leading-[0.95] sm:text-7xl">
+            Hear what your beat is <em>doing</em>.
+          </h1>
+          <p className="mt-6 max-w-md text-lg text-muted">
+            Upload a track and see its whole shape. Pick any 30 seconds and step inside to see what is
+            happening in it: how loud, how bright, how heavy the low end.
           </p>
-        )}
+        </div>
+
+        <div className="animate-fade-up border border-ink/80 bg-surface p-6 [animation-delay:120ms]">
+          <label className="block cursor-pointer">
+            <span className="block text-sm text-muted">Your track</span>
+            <span className="mt-1 block font-display text-3xl leading-tight">
+              {file ? file.name : "Choose a file"}
+            </span>
+            <input
+              type="file"
+              accept=".wav,.mp3,.m4a,.flac,.aiff"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="sr-only"
+            />
+            <span className="mt-1 block text-sm text-muted">WAV, MP3, M4A, FLAC or AIFF, up to 50 MB</span>
+          </label>
+          <button
+            onClick={handleUploadAndAnalyze}
+            disabled={!file || loading !== null}
+            className="mt-6 w-full bg-accent px-5 py-3 text-[15px] font-medium text-surface transition hover:bg-ink disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-accent"
+          >
+            Analyze this track
+          </button>
+        </div>
       </div>
 
-      {error && (
-        <p className="mt-4 rounded-2xl border border-accent/40 bg-accent/10 p-3 text-sm text-accent">{error}</p>
-      )}
+      {error && <p className="mt-8 border-l-2 border-accent pl-4 text-accent">{error}</p>}
 
       {history.length > 0 && (
-        <div className="mt-10">
-          <h2 className="mb-3 font-mono text-xs uppercase tracking-[0.3em] text-accent2">
-            // Recent
-          </h2>
-          <ul className="space-y-2">
+        <section className="mt-20">
+          <h2 className="font-display text-3xl">Recent</h2>
+          <ul className="mt-4 border-t border-ink/20">
             {history.map((entry) => (
-              <li key={entry.track_id}>
+              <li key={entry.track_id} className="border-b border-ink/20">
                 <button
                   onClick={() => loadHistoryEntry(entry)}
                   disabled={loading !== null}
-                  className="hud-panel w-full border border-border bg-surface p-3 text-left font-mono text-sm transition hover:border-accent2 disabled:opacity-40"
+                  className="flex w-full items-baseline justify-between gap-4 py-3 text-left transition hover:text-accent disabled:opacity-40"
                 >
-                  <span className="font-medium text-ink">{entry.filename}</span>{" "}
-                  <span className="text-muted">
-                    — {entry.duration_sec}s · {new Date(entry.created_at).toLocaleString()}
+                  <span className="truncate font-display text-2xl">{entry.filename}</span>
+                  <span className="num shrink-0 text-sm text-muted">
+                    {Math.floor(entry.duration_sec / 60)}:{String(Math.round(entry.duration_sec % 60)).padStart(2, "0")}
+                    {" · "}
+                    {new Date(entry.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                   </span>
                 </button>
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
     </div>
   );

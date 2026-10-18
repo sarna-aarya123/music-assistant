@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Html } from "@react-three/drei";
+import { ContactShadows, Environment, Html } from "@react-three/drei";
 import * as THREE from "three";
 import type { ThemeColors } from "@/lib/themeColors";
 import type { StudioObjectId, StudioReading } from "@/lib/windowStats";
+import { Amp, FitModel, Microphone, Mixer, RoomShell, Shadowed, Speaker } from "@/components/StudioParts";
 
 type Vec3 = [number, number, number];
 type CameraTarget = { pos: Vec3; look: Vec3; /** Which side of the object its readout card sits on (+1 right, -1 left). */ side: 1 | -1 };
@@ -31,7 +32,7 @@ type SceneProps = {
   levels: StudioLevels;
   readings: Record<StudioObjectId, StudioReading>;
   colors: ThemeColors;
-  /** Slight mood hint mixed into the lighting; null = none. */
+  /** Slight mood hint mixed into the light; null = none. */
   mood: string | null;
   /** True on portrait screens, where the parent shows the readout as a bottom sheet instead. */
   hideCards: boolean;
@@ -70,8 +71,8 @@ function CameraRig({ selected, hideCards }: { selected: StudioObjectId | null; h
   return null;
 }
 
-/** Wraps a clickable prop: hover lift, pointer cursor, click to select, and — when selected — a
- * readout card floating beside the object. */
+/** Wraps a clickable prop: hover lift, pointer cursor, click to select, a small red marker, and —
+ * when selected — a readout card beside the object. */
 function Clickable({
   id,
   position,
@@ -96,7 +97,7 @@ function Clickable({
   children: ReactNode;
 }) {
   const group = useRef<THREE.Group>(null);
-  const marker = useRef<THREE.Mesh>(null);
+  const marker = useRef<THREE.Group>(null);
   const [hover, setHover] = useState(false);
   const active = selected === id;
 
@@ -110,12 +111,13 @@ function Clickable({
 
   useFrame((state, dt) => {
     if (group.current) {
-      const target = hover || active ? 1.05 : 1;
+      const target = hover || active ? 1.04 : 1;
       group.current.scale.setScalar(group.current.scale.x + (target - group.current.scale.x) * Math.min(1, dt * 10));
     }
     if (marker.current) {
-      marker.current.position.y = markerY + Math.sin(state.clock.elapsedTime * 2.2 + position[0]) * 0.06;
-      marker.current.rotation.y += dt * 1.6;
+      const t = state.clock.elapsedTime;
+      marker.current.position.y = markerY + Math.sin(t * 2 + position[0]) * 0.04;
+      marker.current.scale.setScalar(1 + Math.sin(t * 3 + position[0]) * 0.12);
       marker.current.visible = !active;
     }
   });
@@ -134,27 +136,32 @@ function Clickable({
         onSelect(id);
       }}
     >
-      {children}
-      <mesh ref={marker} position={[0, markerY, 0]}>
-        <octahedronGeometry args={[0.1, 0]} />
-        <meshStandardMaterial color={markerColor} emissive={markerColor} emissiveIntensity={1.2} flatShading />
-      </mesh>
+      <Shadowed>{children}</Shadowed>
+      {/* "Click me" hotspot: a small solid dot inside a thin ring, like a map pin. */}
+      <group ref={marker} position={[0, markerY, 0]}>
+        <mesh>
+          <sphereGeometry args={[0.07, 16, 12]} />
+          <meshBasicMaterial color={markerColor} />
+        </mesh>
+        <mesh>
+          <torusGeometry args={[0.14, 0.012, 6, 28]} />
+          <meshBasicMaterial color={markerColor} />
+        </mesh>
+      </group>
       {active && showCard && (
         <Html position={cardOffset} style={{ pointerEvents: "none" }} zIndexRange={[20, 0]}>
-          <div className="w-64 -translate-y-1/2 rounded-xl border border-white/15 bg-[#0c0a1e]/85 p-3 text-left shadow-2xl backdrop-blur">
-            <div className="font-mono text-[10px] uppercase tracking-widest text-white/50">{reading.title}</div>
-            <div className="mb-2 font-display text-base uppercase tracking-wide" style={{ color: markerColor }}>
-              {reading.subject}
-            </div>
-            <dl className="mb-2 space-y-1">
+          <div className="w-64 -translate-y-1/2 border border-ink/70 bg-surface p-4 text-left text-ink shadow-[0_14px_30px_-18px_rgba(22,20,15,0.6)]">
+            <div className="text-xs text-muted">{reading.title}</div>
+            <div className="font-display text-2xl leading-tight">{reading.subject}</div>
+            <dl className="my-2 space-y-0.5 border-y border-ink/15 py-2">
               {reading.stats.map((s) => (
-                <div key={s.label} className="flex justify-between font-mono text-xs">
-                  <dt className="uppercase tracking-widest text-white/50">{s.label}</dt>
-                  <dd className="font-semibold text-white">{s.value}</dd>
+                <div key={s.label} className="flex justify-between text-sm">
+                  <dt className="text-muted">{s.label}</dt>
+                  <dd className="num font-medium">{s.value}</dd>
                 </div>
               ))}
             </dl>
-            <p className="text-sm leading-snug text-white/90">{reading.summary}</p>
+            <p className="text-[15px] leading-snug">{reading.summary}</p>
           </div>
         </Html>
       )}
@@ -162,211 +169,25 @@ function Clickable({
   );
 }
 
-/** Microphone: sound rings radiate from the capsule — louder section, brighter and faster rings. */
-function Microphone({ loudness01, colors }: { loudness01: number; colors: ThemeColors }) {
-  const rings = useRef<(THREE.Mesh | null)[]>([]);
-
-  useFrame((state) => {
-    const t = state.clock.elapsedTime;
-    const speed = 0.35 + loudness01 * 0.9;
-    for (let i = 0; i < 3; i++) {
-      const ring = rings.current[i];
-      if (!ring) continue;
-      const phase = (t * speed + i / 3) % 1;
-      ring.scale.setScalar(0.6 + phase * 1.8);
-      (ring.material as THREE.MeshBasicMaterial).opacity = (1 - phase) * (0.15 + loudness01 * 0.75);
-    }
-  });
-
-  return (
-    <group>
-      <mesh position={[0, 0.04, 0]}>
-        <cylinderGeometry args={[0.38, 0.45, 0.08, 8]} />
-        <meshStandardMaterial color="#2a2250" flatShading />
-      </mesh>
-      <mesh position={[0, 0.82, 0]}>
-        <cylinderGeometry args={[0.04, 0.04, 1.5, 6]} />
-        <meshStandardMaterial color="#3a2f6b" flatShading />
-      </mesh>
-      <mesh position={[0, 1.7, 0]}>
-        <capsuleGeometry args={[0.15, 0.34, 3, 8]} />
-        <meshStandardMaterial color="#cfc8ee" emissive={colors.gold} emissiveIntensity={0.25} flatShading />
-      </mesh>
-      <mesh position={[0, 1.7, 0.28]}>
-        <torusGeometry args={[0.34, 0.025, 6, 16]} />
-        <meshStandardMaterial color="#17122e" flatShading />
-      </mesh>
-      {Array.from({ length: 3 }, (_, i) => (
-        <mesh
-          key={i}
-          ref={(el) => {
-            rings.current[i] = el;
-          }}
-          position={[0, 1.7, 0.4]}
-        >
-          <torusGeometry args={[0.4, 0.015, 6, 28]} />
-          <meshBasicMaterial color={colors.gold} transparent opacity={0.5} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-/** Studio monitor: the woofer cone pulses with the section's loudness; the tweeter glows brighter
- * the brighter the section sounds. */
-function Speaker({ brightness01, loudness01, colors }: { brightness01: number; loudness01: number; colors: ThemeColors }) {
-  const woofer = useRef<THREE.Mesh>(null);
-  const tweeterMat = useRef<THREE.MeshStandardMaterial>(null);
-
-  useFrame((state) => {
-    const t = state.clock.elapsedTime;
-    if (woofer.current) woofer.current.scale.setScalar(1 + Math.sin(t * (4 + loudness01 * 10)) * 0.04 * (0.3 + loudness01));
-    if (tweeterMat.current) tweeterMat.current.emissiveIntensity = 0.15 + brightness01 * 1.6;
-  });
-
-  return (
-    <group>
-      <mesh>
-        <boxGeometry args={[0.8, 1.3, 0.7]} />
-        <meshStandardMaterial color="#17122e" flatShading />
-      </mesh>
-      <mesh ref={woofer} position={[0, -0.25, 0.36]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.26, 0.26, 0.04, 14]} />
-        <meshStandardMaterial color="#2a2250" flatShading />
-      </mesh>
-      <mesh position={[0, 0.32, 0.37]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.1, 0.1, 0.04, 12]} />
-        <meshStandardMaterial ref={tweeterMat} color={colors.accent2} emissive={colors.accent2} emissiveIntensity={0.4} flatShading />
-      </mesh>
-    </group>
-  );
-}
-
-/** Amp: a glow strip across the grille whose strength follows how much of the section sits in the
- * low end, and knobs along the top. */
-function Amp({ lowEnd01, colors }: { lowEnd01: number; colors: ThemeColors }) {
-  const strip = useRef<THREE.MeshStandardMaterial>(null);
-
-  useFrame((state) => {
-    if (strip.current) {
-      strip.current.emissiveIntensity = 0.2 + lowEnd01 * 1.8 + Math.sin(state.clock.elapsedTime * (2 + lowEnd01 * 4)) * 0.15 * lowEnd01;
-    }
-  });
-
-  return (
-    <group>
-      <mesh position={[0, 0.55, 0]}>
-        <boxGeometry args={[1.5, 1.1, 0.75]} />
-        <meshStandardMaterial color="#14101f" flatShading />
-      </mesh>
-      <mesh position={[0, 0.4, 0.38]}>
-        <boxGeometry args={[1.3, 0.7, 0.02]} />
-        <meshStandardMaterial color="#241d3a" flatShading />
-      </mesh>
-      <mesh position={[0, 0.4, 0.4]}>
-        <boxGeometry args={[1.2, 0.05, 0.01]} />
-        <meshStandardMaterial ref={strip} color={colors.accent} emissive={colors.accent} emissiveIntensity={0.4} />
-      </mesh>
-      {Array.from({ length: 5 }, (_, i) => (
-        <mesh key={i} position={[-0.5 + i * 0.25, 0.97, 0.37]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.05, 0.05, 0.06, 10]} />
-          <meshStandardMaterial color="#cfc8ee" flatShading />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-/** Mixer: faders slide to different heights, and move more the more the section's level swings. */
-function Mixer({ swing01, colors }: { swing01: number; colors: ThemeColors }) {
-  const faders = useRef<(THREE.Mesh | null)[]>([]);
-
-  useFrame((state) => {
-    const t = state.clock.elapsedTime;
-    for (let i = 0; i < 8; i++) {
-      const f = faders.current[i];
-      if (!f) continue;
-      f.position.z = -0.05 + Math.sin(t * (0.8 + i * 0.23) + i) * (0.05 + swing01 * 0.2);
-    }
-  });
-
-  return (
-    <group rotation={[-0.14, 0, 0]}>
-      <mesh>
-        <boxGeometry args={[2.6, 0.2, 1.3]} />
-        <meshStandardMaterial color="#1d1740" flatShading />
-      </mesh>
-      {Array.from({ length: 8 }, (_, i) => (
-        <group key={i} position={[-1.05 + i * 0.3, 0.11, 0]}>
-          <mesh position={[0, 0, 0.1]}>
-            <boxGeometry args={[0.035, 0.02, 0.7]} />
-            <meshStandardMaterial color="#07061a" />
-          </mesh>
-          <mesh
-            ref={(el) => {
-              faders.current[i] = el;
-            }}
-            position={[0, 0.03, 0]}
-          >
-            <boxGeometry args={[0.13, 0.05, 0.1]} />
-            <meshStandardMaterial color={colors.accent2} emissive={colors.accent2} emissiveIntensity={0.5} flatShading />
-          </mesh>
-          <mesh position={[0, 0.02, -0.5]} rotation={[0, 0, 0]}>
-            <cylinderGeometry args={[0.06, 0.06, 0.05, 10]} />
-            <meshStandardMaterial color={i % 2 ? "#cfc8ee" : colors.gold} flatShading />
-          </mesh>
-        </group>
-      ))}
-    </group>
-  );
-}
-
-function FoamWall({ colors }: { colors: ThemeColors }) {
-  const panels = useMemo(() => {
-    const out: { x: number; y: number; c: number }[] = [];
-    for (let ix = 0; ix < 10; ix++) for (let iy = 0; iy < 3; iy++) out.push({ x: -5.4 + ix * 1.2, y: 1.6 + iy * 1.1, c: (ix + iy) % 3 });
-    return out;
-  }, []);
-  const shades = ["#1d1740", "#241c4d", "#191338"];
-  return (
-    <group position={[0, 0, -3.95]}>
-      {panels.map((p, i) => (
-        <mesh key={i} position={[p.x, p.y, 0]}>
-          <boxGeometry args={[1.05, 0.95, 0.12]} />
-          <meshStandardMaterial color={shades[p.c]} flatShading />
-        </mesh>
-      ))}
-      <mesh position={[0, 4.55, 0.05]}>
-        <boxGeometry args={[12, 0.06, 0.06]} />
-        <meshStandardMaterial color={colors.accent} emissive={colors.accent} emissiveIntensity={1.6} />
-      </mesh>
-    </group>
-  );
-}
-
+/** The close-up room: the shared shell plus the desk, with the real lamp and stool on it. */
 function Room({ colors }: { colors: ThemeColors }) {
   return (
     <group>
-      <mesh position={[0, 0, -1]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[18, 12]} />
-        <meshStandardMaterial color="#120e26" />
-      </mesh>
-      <gridHelper args={[18, 36, colors.accent2, colors.accent2]} position={[0, 0.01, -1]} />
-      <mesh position={[0, 3, -4]}>
-        <planeGeometry args={[18, 6]} />
-        <meshStandardMaterial color="#0e0a20" />
-      </mesh>
-      <FoamWall colors={colors} />
-      <mesh position={[0, 0.82, -1.5]}>
-        <boxGeometry args={[6.6, 0.14, 1.9]} />
-        <meshStandardMaterial color="#2b2156" flatShading />
+      <RoomShell colors={colors} />
+      <mesh position={[0, 0.82, -1.5]} castShadow receiveShadow>
+        <boxGeometry args={[6.6, 0.1, 1.9]} />
+        <meshStandardMaterial color="#8b6a46" roughness={0.5} />
       </mesh>
       {[-3.1, 3.1].map((x) => (
-        <mesh key={x} position={[x, 0.4, -1.5]}>
-          <boxGeometry args={[0.16, 0.8, 1.7]} />
-          <meshStandardMaterial color="#1d1740" flatShading />
+        <mesh key={x} position={[x, 0.4, -1.5]} castShadow receiveShadow>
+          <boxGeometry args={[0.14, 0.78, 1.7]} />
+          <meshStandardMaterial color="#2a2520" roughness={0.6} />
         </mesh>
       ))}
+      <Suspense fallback={null}>
+        <FitModel url="/models/desk_lamp_arm_01/desk_lamp_arm_01.gltf" height={1.9} position={[2.2, 0.87, -1.95]} rotationY={-0.5} />
+        <FitModel url="/models/folding_wooden_stool/folding_wooden_stool.gltf" height={1.0} position={[0.9, 0, 0.5]} rotationY={0.6} />
+      </Suspense>
     </group>
   );
 }
@@ -376,30 +197,46 @@ export default function StudioScene({ selected, onSelect, levels, readings, colo
     <Canvas
       camera={{ position: START_POSITION, fov: 45 }}
       dpr={[1, 2]}
+      shadows
       onPointerMissed={() => onSelect(null)}
-      gl={{ antialias: true }}
+      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
     >
-      <color attach="background" args={["#0a0818"]} />
-      <fog attach="fog" args={["#0a0818", 10, 24]} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[2, 6, 5]} intensity={0.9} />
-      <pointLight position={[-3.5, 3, 1]} intensity={14} color={colors.accent} />
-      <pointLight position={[3.5, 3, 1]} intensity={14} color={colors.accent2} />
-      {mood && <pointLight position={[0, 4, 2]} intensity={9} color={mood} />}
+      <color attach="background" args={[colors.background]} />
+      <fog attach="fog" args={[colors.background, 14, 30]} />
+      <Suspense fallback={null}>
+        <Environment files="/hdri/studio.hdr" environmentIntensity={0.85} />
+      </Suspense>
+      <directionalLight
+        position={[-6, 8, 5]}
+        intensity={2.2}
+        color="#fff3df"
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-camera-left={-9}
+        shadow-camera-right={9}
+        shadow-camera-top={7}
+        shadow-camera-bottom={-3}
+        shadow-camera-near={1}
+        shadow-camera-far={30}
+        shadow-bias={-0.0004}
+        shadow-radius={4}
+      />
+      {mood && <pointLight position={[0, 4, 3]} intensity={6} color={mood} />}
       <CameraRig selected={selected} hideCards={hideCards} />
       <Room colors={colors} />
+      <ContactShadows position={[0, 0.011, -0.5]} opacity={0.35} scale={16} blur={2.6} far={3} />
 
-      <Clickable id="speaker" position={[-2.3, 1.55, -1.7]} selected={selected} onSelect={onSelect} markerColor={colors.accent2} markerY={1.0} reading={readings.speaker} cardOffset={[1.0, 0.2, 0.4]} showCard={!hideCards}>
-        <Speaker brightness01={levels.brightness01} loudness01={levels.loudness01} colors={colors} />
+      <Clickable id="speaker" position={[-2.3, 1.55, -1.7]} selected={selected} onSelect={onSelect} markerColor={colors.accent} markerY={1.0} reading={readings.speaker} cardOffset={[1.0, 0.2, 0.4]} showCard={!hideCards}>
+        <Speaker loudness01={levels.loudness01} />
       </Clickable>
-      <Clickable id="mixer" position={[0, 0.99, -1.4]} selected={selected} onSelect={onSelect} markerColor={colors.gold} markerY={0.55} reading={readings.mixer} cardOffset={[1.7, 0.6, 0.2]} showCard={!hideCards}>
-        <Mixer swing01={levels.swing01} colors={colors} />
+      <Clickable id="mixer" position={[0, 0.99, -1.4]} selected={selected} onSelect={onSelect} markerColor={colors.accent} markerY={0.55} reading={readings.mixer} cardOffset={[1.7, 0.6, 0.2]} showCard={!hideCards}>
+        <Mixer swing01={levels.swing01} />
       </Clickable>
-      <Clickable id="mic" position={[-3.5, 0, -0.4]} selected={selected} onSelect={onSelect} markerColor={colors.gold} markerY={2.3} reading={readings.mic} cardOffset={[1.2, 1.7, 0.2]} showCard={!hideCards}>
-        <Microphone loudness01={levels.loudness01} colors={colors} />
+      <Clickable id="mic" position={[-3.5, 0, -0.4]} selected={selected} onSelect={onSelect} markerColor={colors.accent} markerY={2.3} reading={readings.mic} cardOffset={[1.2, 1.7, 0.2]} showCard={!hideCards}>
+        <Microphone loudness01={levels.loudness01} />
       </Clickable>
       <Clickable id="amp" position={[3.5, 0, -1.6]} selected={selected} onSelect={onSelect} markerColor={colors.accent} markerY={1.5} reading={readings.amp} cardOffset={[-1.1, 1.0, 0.4]} showCard={!hideCards}>
-        <Amp lowEnd01={levels.lowEnd01} colors={colors} />
+        <Amp lowEnd01={levels.lowEnd01} />
       </Clickable>
     </Canvas>
   );

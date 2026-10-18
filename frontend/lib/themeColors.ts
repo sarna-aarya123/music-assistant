@@ -1,13 +1,27 @@
 import { useEffect, useState } from "react";
 
-export type ThemeColors = { accent: string; accent2: string; gold: string; ink: string };
+export type ThemeColors = {
+  accent: string;
+  accent2: string;
+  gold: string;
+  ink: string;
+  background: string;
+  surface: string;
+  muted: string;
+};
 
-const FALLBACK: ThemeColors = { accent: "#ff5a36", accent2: "#2dd4bf", gold: "#ffb020", ink: "#f3eeff" };
+const FALLBACK: ThemeColors = {
+  accent: "rgb(205,52,40)",
+  accent2: "rgb(52,47,40)",
+  gold: "rgb(176,124,32)",
+  ink: "rgb(22,20,15)",
+  background: "rgb(240,235,224)",
+  surface: "rgb(248,244,236)",
+  muted: "rgb(110,103,90)",
+};
 
-/** Canvas fillStyle/strokeStyle and three.js materials need a literal resolved color, unlike
- * regular CSS which can read a `var(--x)` directly — so the current colorway's variables are read
- * here. Callers refresh whenever ThemeSwitcher fires the "themechange" event (see
- * components/ThemeSwitcher.tsx). */
+/** three.js materials and canvas drawing need literal colors, not `var(--x)` — this reads the same
+ * CSS variables the stylesheet uses (see app/globals.css) so 3D and UI never drift apart. */
 export function readThemeColors(): ThemeColors {
   const styles = getComputedStyle(document.documentElement);
   const rgb = (name: string, fallback: string) => {
@@ -19,17 +33,16 @@ export function readThemeColors(): ThemeColors {
     accent2: rgb("--color-accent2", FALLBACK.accent2),
     gold: rgb("--color-gold", FALLBACK.gold),
     ink: rgb("--color-ink", FALLBACK.ink),
+    background: rgb("--color-background", FALLBACK.background),
+    surface: rgb("--color-surface", FALLBACK.surface),
+    muted: rgb("--color-muted", FALLBACK.muted),
   };
 }
 
-/** The active colorway as literal colors, kept current across theme switches. */
 export function useThemeColors(): ThemeColors {
   const [colors, setColors] = useState<ThemeColors>(FALLBACK);
   useEffect(() => {
-    const refresh = () => setColors(readThemeColors());
-    refresh();
-    window.addEventListener("themechange", refresh);
-    return () => window.removeEventListener("themechange", refresh);
+    setColors(readThemeColors());
   }, []);
   return colors;
 }

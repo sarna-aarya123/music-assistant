@@ -1,49 +1,32 @@
 import type { Metadata } from "next";
-import { Anton, JetBrains_Mono } from "next/font/google";
-import NavBar from "@/components/NavBar";
-import GlowField from "@/components/GlowField";
+import { Instrument_Sans, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
-const displayFont = Anton({
+const displayFont = Instrument_Serif({
   subsets: ["latin"],
   weight: "400",
+  style: ["normal", "italic"],
   variable: "--font-display",
 });
 
-const monoFont = JetBrains_Mono({
+const sansFont = Instrument_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  variable: "--font-mono",
+  variable: "--font-sans",
 });
 
 export const metadata: Metadata = {
   title: "AI Music Assistant",
-  description: "Simple feedback for your beats, MIDI, and lyrics.",
+  description: "See what's happening inside your beat, second by second.",
 };
-
-// Runs before paint, straight in <head>, so a returning visitor's saved colorway applies
-// immediately instead of flashing the default theme for a frame — the standard no-FOUC pattern.
-const THEME_INIT_SCRIPT = `
-(function () {
-  try {
-    var t = localStorage.getItem("theme");
-    if (t) document.documentElement.setAttribute("data-theme", t);
-  } catch (e) {}
-})();
-`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${displayFont.variable} ${monoFont.variable}`}>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
-      </head>
-      <body className="min-h-screen bg-background text-ink">
-        <div aria-hidden className="hud-grid" />
-        <div aria-hidden className="app-texture" />
-        <GlowField />
-        <NavBar />
-        <main className="mx-auto max-w-5xl px-6 py-10">{children}</main>
+    <html lang="en" className={`${displayFont.variable} ${sansFont.variable}`}>
+      <body className="min-h-screen">
+        <header className="mx-auto flex max-w-5xl items-baseline justify-between px-6 pt-8">
+          <span className="font-display text-2xl">AI Music Assistant</span>
+        </header>
+        <main className="mx-auto max-w-5xl px-6 pb-20 pt-10 sm:pt-16">{children}</main>
       </body>
     </html>
   );

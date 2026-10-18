@@ -14,21 +14,20 @@ import {
   type StudioObjectId,
   type TimeWindow,
 } from "@/lib/windowStats";
-import ThemeSwitcher from "@/components/ThemeSwitcher";
 
 // three.js is big and browser-only — each scene loads on demand.
 const Loading = ({ text }: { text: string }) => (
-  <div className="flex h-full w-full items-center justify-center font-mono text-xs uppercase tracking-widest text-white/50">
+  <div className="flex h-full w-full items-center justify-center font-display text-3xl italic text-muted">
     {text}
   </div>
 );
 const WaveformWorld = dynamic(() => import("@/components/WaveformWorld"), {
   ssr: false,
-  loading: () => <Loading text="Loading waveform..." />,
+  loading: () => <Loading text="Loading waveform…" />,
 });
 const StudioScene = dynamic(() => import("@/components/StudioScene"), {
   ssr: false,
-  loading: () => <Loading text="Creating studio..." />,
+  loading: () => <Loading text="Creating studio…" />,
 });
 
 // Matches DIVE_MS in WaveformWorld (kept as a literal so importing it doesn't pull three.js in
@@ -149,15 +148,12 @@ function ExperienceInner({ features, durationSec, file, onExit }: ExperienceProp
 
   if (!hasWindowData(features)) {
     return (
-      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-[#0a0818] p-6 text-center">
-        <p className="max-w-md text-sm text-white/80">
-          This analysis was saved before the interactive waveform existed. Analyze the track again to
-          explore it.
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+        <p className="max-w-md font-display text-3xl leading-tight">
+          This analysis was saved before the interactive waveform existed.
         </p>
-        <button
-          onClick={onExit}
-          className="bg-accent px-4 py-2 text-sm font-medium uppercase tracking-wide"
-        >
+        <p className="max-w-md text-muted">Analyze the track again to explore it.</p>
+        <button onClick={onExit} className="mt-2 bg-accent px-5 py-3 text-[15px] font-medium text-surface transition hover:bg-ink">
           Analyze a track
         </button>
       </div>
@@ -176,7 +172,7 @@ function ExperienceInner({ features, durationSec, file, onExit }: ExperienceProp
   ];
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-hidden bg-[#0a0818]" style={rootStyle}>
+    <div className="fixed inset-0 z-[100] overflow-hidden bg-background" style={rootStyle}>
       {/* Scenes */}
       {phase !== "studio" && (
         <div className="absolute inset-0">
@@ -216,57 +212,49 @@ function ExperienceInner({ features, durationSec, file, onExit }: ExperienceProp
 
       {/* Dive/arrive fade: dark by the end of the dive, then clears once the studio is up. */}
       <div
-        className={`pointer-events-none absolute inset-0 z-20 bg-[#0a0818] transition-opacity ${
+        className={`pointer-events-none absolute inset-0 z-20 bg-background transition-opacity ${
           phase === "diving" ? "opacity-100 delay-[700ms] duration-700" : "opacity-0 duration-1000"
         }`}
       />
 
+      {/* Soft paper fades so the text stays readable over any part of the scene. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-32 bg-gradient-to-b from-background/90 via-background/50 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-28 bg-gradient-to-t from-background/90 via-background/50 to-transparent" />
+
       {/* Top bar */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-4">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start justify-between gap-3 p-5">
         <div className="pointer-events-auto">
           {phase === "studio" ? (
-            <button
-              onClick={back}
-              className="font-mono text-xs uppercase tracking-widest text-white/70 transition hover:text-white"
-            >
-              ← Back to waveform
+            <button onClick={back} className="text-[15px] underline-offset-4 transition hover:underline">
+              ← Back to the waveform
             </button>
           ) : (
-            <div className="font-mono text-xs uppercase tracking-widest text-white/70">
-              AI Music Assistant
-            </div>
+            <div className="font-display text-2xl leading-none">AI Music Assistant</div>
           )}
           {features.mood_label && (
-            <div className="mt-1 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-white/50">
-              <span className="h-2 w-2 rounded-full" style={{ background: mood ?? "#fff" }} />
-              Mood: {features.mood_label} (estimated)
+            <div className="mt-2 flex items-center gap-2 text-sm text-muted">
+              <span className="inline-block h-2.5 w-2.5" style={{ background: mood ?? "currentColor" }} />
+              Feels {features.mood_label.toLowerCase()} <span className="opacity-70">· estimated</span>
             </div>
           )}
         </div>
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
-          <button
-            onClick={() => setShowInfo((v) => !v)}
-            className="font-mono text-xs uppercase tracking-widest text-white/70 transition hover:text-white"
-          >
+        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-x-5 gap-y-1 text-[15px]">
+          <button onClick={() => setShowInfo((v) => !v)} className="underline-offset-4 transition hover:underline">
             Track info
           </button>
-          <ThemeSwitcher />
-          <button
-            onClick={onExit}
-            className="font-mono text-xs uppercase tracking-widest text-white/70 transition hover:text-white"
-          >
+          <button onClick={onExit} className="underline-offset-4 transition hover:underline">
             New track
           </button>
         </div>
       </div>
 
       {showInfo && (
-        <div className="absolute right-4 top-16 z-30 w-60 rounded-xl border border-white/15 bg-[#0c0a1e]/90 p-3 backdrop-blur">
+        <div className="absolute right-5 top-14 z-30 w-60 border border-ink/70 bg-surface p-4 shadow-[0_14px_30px_-18px_rgba(22,20,15,0.6)]">
           <dl className="space-y-1">
             {statRows.map(([label, value]) => (
-              <div key={label} className="flex justify-between font-mono text-xs">
-                <dt className="uppercase tracking-widest text-white/50">{label}</dt>
-                <dd className="font-semibold text-white">{value}</dd>
+              <div key={label} className="flex justify-between text-sm">
+                <dt className="text-muted">{label}</dt>
+                <dd className="num font-medium">{value}</dd>
               </div>
             ))}
           </dl>
@@ -275,40 +263,49 @@ function ExperienceInner({ features, durationSec, file, onExit }: ExperienceProp
 
       {/* Portrait: the selected object's readout as a bottom sheet. */}
       {phase === "studio" && portrait && selected && readings && (
-        <div className="absolute inset-x-3 bottom-14 z-30 rounded-xl border border-white/15 bg-[#0c0a1e]/90 p-3 backdrop-blur">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-white/50">{readings[selected].title}</div>
-          <div className="mb-2 font-display text-base uppercase tracking-wide text-accent">{readings[selected].subject}</div>
-          <dl className="mb-2 space-y-1">
+        <div className="absolute inset-x-3 bottom-16 z-30 border border-ink/70 bg-surface p-4 shadow-[0_14px_30px_-18px_rgba(22,20,15,0.6)]">
+          <div className="text-xs text-muted">{readings[selected].title}</div>
+          <div className="font-display text-2xl leading-tight">{readings[selected].subject}</div>
+          <dl className="my-2 space-y-0.5 border-y border-ink/15 py-2">
             {readings[selected].stats.map((st) => (
-              <div key={st.label} className="flex justify-between font-mono text-xs">
-                <dt className="uppercase tracking-widest text-white/50">{st.label}</dt>
-                <dd className="font-semibold text-white">{st.value}</dd>
+              <div key={st.label} className="flex justify-between text-sm">
+                <dt className="text-muted">{st.label}</dt>
+                <dd className="num font-medium">{st.value}</dd>
               </div>
             ))}
           </dl>
-          <p className="text-sm leading-snug text-white/90">{readings[selected].summary}</p>
+          <p className="text-[15px] leading-snug">{readings[selected].summary}</p>
         </div>
       )}
 
       {/* Bottom hint / controls */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex items-end justify-between gap-3 p-4">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex items-end justify-between gap-3 p-5">
         {phase === "waveform" && (
-          <div className="font-mono text-xs uppercase tracking-widest text-white/60">
-            {hover
-              ? `${fmtTime(hover.start)} – ${fmtTime(hover.end)} · click to step into the studio`
-              : "Hover to preview 30 seconds · click anywhere to step in"}
+          <div className="font-display text-xl italic text-muted sm:text-2xl">
+            {hover ? (
+              <>
+                <span className="num not-italic text-ink">
+                  {fmtTime(hover.start)} – {fmtTime(hover.end)}
+                </span>{" "}
+                · click to step in
+              </>
+            ) : (
+              "Hover to preview 30 seconds. Click anywhere to step in."
+            )}
           </div>
         )}
         {phase === "studio" && win && (
           <>
-            <div className="font-mono text-xs uppercase tracking-widest text-white/60">
-              {fmtTime(win.start)} – {fmtTime(win.end)} ·{" "}
-              {selected ? "click empty space to look around" : "click the mic, monitor, mixer or amp"}
+            <div className="font-display text-xl italic text-muted sm:text-2xl">
+              <span className="num not-italic text-ink">
+                {fmtTime(win.start)} – {fmtTime(win.end)}
+              </span>{" "}
+              · {selected ? "click empty space to look around" : "click the mic, monitor, mixer or amp"}
             </div>
             {audioUrl && (
               <button
                 onClick={togglePlay}
-                className="pointer-events-auto bg-accent px-4 py-2 text-xs font-medium uppercase tracking-wide"
+                className="pointer-events-auto bg-ink px-5 py-3 text-[15px] font-medium text-surface transition hover:bg-accent"
               >
                 {playing ? "Stop" : "Play this section"}
               </button>
